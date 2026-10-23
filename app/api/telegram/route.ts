@@ -5,7 +5,7 @@ import * as tg from '@/src/server/telegram';
 import { safeEqual } from '@/src/core/signing';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 60; // the coach call is capped at 40 s and duplicates are dropped by update_id
 
 export async function POST(req: Request) {
   const got = req.headers.get('x-telegram-bot-api-secret-token') ?? '';

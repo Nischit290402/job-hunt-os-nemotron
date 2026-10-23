@@ -4,7 +4,7 @@
  * Set PGTEST_URL or PGHOST/PGPORT/PGUSER; the suite creates and drops its own database.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import type { Sql } from '../src/server/sql';
 
 const lit = (v: unknown): string => {
@@ -34,7 +34,8 @@ export function makeTestDb(): { sql: Sql; db: string; drop: () => void } {
   const base = process.env.PGTEST_DB || 'postgres';
   const db = `jh_test_${process.pid}_${Date.now()}`;
   psql(base, `CREATE DATABASE ${db}`);
-  psql(db, readFileSync(new URL('../migrations/001_init.sql', import.meta.url), 'utf8'));
+  const dir = new URL('../migrations/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) psql(db, readFileSync(new URL(f, dir), 'utf8'));
   const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     let q = strings[0];
     values.forEach((v, i) => (q += lit(v) + strings[i + 1]));

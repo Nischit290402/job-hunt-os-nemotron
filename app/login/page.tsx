@@ -8,6 +8,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <h1>Sign in</h1>
       {error && <div className="notice">That code is wrong or expired. Ask for a new one.</div>}
       {sent === 'wait' && <div className="notice">A code was sent less than a minute ago. Check Telegram.</div>}
+      {sent === 'limit' && <div className="notice">Daily code limit reached. Send /unlock to the bot to reset it.</div>}
       <form action="/api/auth/request" method="post" style={{ marginBottom: 16 }}>
         <button type="submit" className="primary">
           {sent ? 'Send another code' : 'Send a code to Telegram'}

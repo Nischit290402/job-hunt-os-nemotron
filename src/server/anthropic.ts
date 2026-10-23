@@ -42,12 +42,13 @@ export async function callTool<T = unknown>(opts: { model: string; system: strin
 }
 
 /** Plain text reply, used by the coach. */
-export async function callText(opts: { model: string; system: string; user: string; maxTokens?: number }): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+export async function callText(opts: { model: string; system: string; user: string; maxTokens?: number; timeoutMs?: number }): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
   const res = await httpPost(
     'https://api.anthropic.com/v1/messages',
     { model: opts.model, max_tokens: opts.maxTokens ?? 800, system: opts.system, messages: [{ role: 'user', content: opts.user }] },
     { 'x-api-key': env.anthropicKey(), 'anthropic-version': '2023-06-01' },
-    90_000
+    opts.timeoutMs ?? 90_000,
+    !opts.timeoutMs
   );
   if (res.status !== 200) throw new ClaudeError(`Claude API ${res.status}: ${res.error ?? res.text.slice(0, 300)}`);
   const data = JSON.parse(res.text);

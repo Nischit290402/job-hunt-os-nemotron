@@ -94,6 +94,11 @@ export async function sendBrief(sql: Sql, today: string) {
 export async function tailor(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'tailoring') return { skipped: true };
+  if (await repo.latestResume(sql, appId)) {
+    // A retry after the resume was already saved and sent: just move on.
+    await tryEvent(sql, appId, 'resume.ready', ['tailoring']);
+    return { ok: true, reused: true };
+  }
   const r = await tailorResume({ applicationId: appId, company: app.company, role: app.title, jdText: app.jd_text });
   if ('error' in r) {
     await tg.send(`Resume for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(r.error)}. Continuing with your base resume.`);
@@ -126,7 +131,18 @@ export async function findContactStep(sql: Sql, appId: number, today: string) {
 export async function draftStep(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'awaiting_send' || !app.contact_id) return { skipped: true };
-  if (!(await repo.latestDraft(sql, appId))) await draftFor(sql, app, app.contact_id);
+  if (!(await repo.latestDraft(sql, appId))) {
+    try {
+      await draftFor(sql, app, app.contact_id);
+    } catch (e) {
+      // Without a draft the application must not sit in awaiting_send forever: offer Drop to continue.
+      await tg.send({
+        text: `Could not draft the referral ask for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(e instanceof Error ? e.message : String(e)).slice(0, 200)}. Tap Drop to continue without a referral.`,
+        keyboard: [[{ text: 'Drop and continue', callback_data: await tg.signer('dr', appId) }]],
+      });
+      return { ok: false };
+    }
+  }
   const d = await repo.latestDraft(sql, appId);
   await tg.send(await approvalCard(toApproval({ id: appId, company: app.company, title: app.title, job_id: app.job_id }, d!), tg.signer));
   return { ok: true };
@@ -137,6 +153,10 @@ export async function dropStaleDraft(sql: Sql, appId: number) {
   const d = await repo.latestDraft(sql, appId);
   if (d && d.kind === 'ask') await repo.markMessage(sql, d.id, 'dropped');
   return tryEvent(sql, appId, 'outreach.dropped', ['awaiting_send'], { note: 'no decision in 5 days' });
+}
+
+export async function stateOf(sql: Sql, appId: number): Promise<AppState | null> {
+  return (await repo.getApplication(sql, appId))?.state ?? null;
 }
 
 export async function afterWait(sql: Sql, appId: number, replied: boolean) {
@@ -177,7 +197,7 @@ export async function checkReplies(sql: Sql, today: string): Promise<{ replied: 
       await tg.send(`<b>${escapeHtml(m.contact_name)}</b> replied about ${escapeHtml(m.title)}. Check Gmail; if they sent a referral link, reply here with /referral ${m.application_id} &lt;link&gt;.`);
       replied.push(Number(m.application_id));
     } else if (Number(m.followups) === 0 && daysBetween(m.sent_at.slice(0, 10), today) >= 5) {
-      await draftFollowUp(sql, m, { contact_id: m.contact_id, name: m.contact_name }, m.title);
+      await draftFollowUp(sql, m, { contact_id: m.contact_id, name: m.contact_name }, m.title, t.lastMessageId);
       const d = await repo.latestDraft(sql, Number(m.application_id));
       const app = await repo.getApplication(sql, Number(m.application_id));
       if (d && app) await tg.send(await approvalCard(toApproval({ id: app.id, company: app.company, title: app.title, job_id: app.job_id }, d), tg.signer));

@@ -29,6 +29,7 @@ const HELP = [
   '/submitted &lt;app id&gt;, /outcome &lt;app id&gt; interview|offer|rejected',
   '/pause and /resume: stop or restart all outward actions',
   '/unlock: re-enable dashboard sign-in after too many wrong codes',
+  '/retry &lt;app id&gt;: restart an application workflow that stopped',
   '/health: sources, runs and spend',
   'Send Connections.csv as a file to refresh your network.',
   'Any other message is a question for the coach.',
@@ -37,6 +38,8 @@ const HELP = [
 export async function handleUpdate(sql: Sql, update: any): Promise<void> {
   const chatId = String(env.telegramChatId());
   const today = sgtDate();
+  // Telegram re-sends an update when it gets no 200 in time; handle each update once.
+  if (Number.isInteger(update?.update_id) && !(await repo.claimTelegramUpdate(sql, update.update_id))) return;
 
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -55,7 +58,8 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
   }
 
   const msg = update.message;
-  if (!msg || String(msg.chat?.id) !== chatId) return;
+  // Same rule as buttons: your private chat, sent by you. Commands from that chat count as your taps.
+  if (!msg || String(msg.chat?.id) !== chatId || String(msg.from?.id) !== chatId) return;
 
   // Connections.csv upload
   if (msg.document) {
@@ -153,9 +157,15 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const s = await repo.applyEvent(sql, Number(m[1]), ev, 'you').catch((e: Error) => e.message);
       return void (await tg.send(`Application ${m[1]}: ${escapeHtml(String(s))}`));
     }
+    case '/retry': {
+      if (!/^\d+$/.test(arg)) return void (await tg.send('Usage: /retry &lt;app id&gt;'));
+      await emit(EV.apply, { applicationId: Number(arg) });
+      return void (await tg.send(`Restarted the workflow for application ${arg}. Steps already done are skipped.`));
+    }
     case '/unlock':
       await repo.invalidateLoginCodes(sql);
       await repo.kvSet(sql, 'login_failures', 0);
+      await repo.kvSet(sql, `login_codes_${today}`, 0);
       return void (await tg.send('Dashboard sign-in unlocked. Request a new code on the login page.'));
     case '/pause':
       await repo.kvSet(sql, 'paused', true);
@@ -196,7 +206,7 @@ async function coach(sql: Sql, question: string, today: string) {
     `In progress:\n${pipeline.map((p) => `- [app ${p.id}] ${p.company}, ${p.title}: ${p.state}`).join('\n') || '- none'}`,
     `Top open jobs:\n${top.map((t) => `- [job ${t.id}] ${t.company}, ${t.title} (${t.track}): ${t.score} ${t.verdict}. ${t.notes}`).join('\n')}`,
   ].join('\n\n');
-  const r = await callText({ model: env.writerModel(), system, user: question, maxTokens: 700 });
+  const r = await callText({ model: env.writerModel(), system, user: question, maxTokens: 700, timeoutMs: 40_000 });
   await repo.recordRun(sql, { step: 'coach', seconds: 0, ok: true, tokensIn: r.tokensIn, tokensOut: r.tokensOut });
   await tg.send(escapeHtml(r.text).slice(0, 4000));
 }

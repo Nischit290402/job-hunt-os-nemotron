@@ -37,24 +37,33 @@ export const dailyRun = inngest.createFunction(
   }
 );
 
+/**
+ * Each branch is chosen by re-reading the application's state, never by trusting that an event arrived: a tap can land
+ * before the matching waitForEvent starts, and waitForEvent does not see earlier events.
+ */
 export const applicationFlow = inngest.createFunction(
   { id: 'application-flow', retries: 3, concurrency: { limit: 1, key: 'event.data.applicationId' } },
   { event: EV.apply },
   async ({ event, step }) => {
     const id = Number(event.data.applicationId);
     const today = await step.run('date', () => sgtDate());
+    const state = (name: string) => step.run(name, async () => steps.stateOf(await getSql(), id));
+
     await step.run('tailor', async () => steps.tailor(await getSql(), id));
-    const found = await step.run('find-contact', async () => steps.findContactStep(await getSql(), id, today));
-    if (found.contact) {
+    await step.run('find-contact', async () => steps.findContactStep(await getSql(), id, today));
+
+    if ((await state('state-after-contact')) === 'awaiting_send') {
       await step.run('draft', async () => steps.draftStep(await getSql(), id));
-      const decided = await step.waitForEvent('wait-decision', { event: EV.outreachDecided, timeout: '5d', if: sameApp });
-      if (!decided) {
+      await step.waitForEvent('wait-decision', { event: EV.outreachDecided, timeout: '5d', if: sameApp });
+      if ((await state('state-after-decision')) === 'awaiting_send') {
         await step.run('drop-stale-draft', async () => steps.dropStaleDraft(await getSql(), id));
-      } else if (decided.data.decision === 'sent') {
-        const reply = await step.waitForEvent('wait-reply', { event: EV.replied, timeout: '3d', if: sameApp });
-        await step.run('after-wait', async () => steps.afterWait(await getSql(), id, !!reply));
       }
     }
+    if ((await state('state-before-wait')) === 'ask_sent') {
+      const reply = await step.waitForEvent('wait-reply', { event: EV.replied, timeout: '3d', if: sameApp });
+      await step.run('after-wait', async () => steps.afterWait(await getSql(), id, !!reply));
+    }
+
     await step.run('queue-fill', async () => steps.queueFill(await getSql(), id));
     const submitted = await step.waitForEvent('wait-submit', { event: EV.submitted, timeout: '14d', if: sameApp });
     if (!submitted) await step.run('submit-reminder', async () => steps.remindSubmit(await getSql(), id));

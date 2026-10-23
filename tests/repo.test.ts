@@ -186,6 +186,34 @@ t('closing: a job missing twice from an OK source closes', async () => {
   assert.equal((await repo.getJob(sql, jobId)).closed_at, '2026-10-22');
 });
 
+t('review fixes: atomic counters, one send per draft, update dedupe, only the newest login code works', async () => {
+  const n = await Promise.all([1, 2, 3, 4, 5].map(() => repo.kvIncrement(sql, 'ctr')));
+  assert.deepEqual([...n].sort(), [1, 2, 3, 4, 5]);
+  await repo.kvSet(sql, 'ctr', 0);
+  assert.equal(await repo.kvIncrement(sql, 'ctr'), 1);
+
+  assert.equal(await repo.claimTelegramUpdate(sql, 100), true);
+  assert.equal(await repo.claimTelegramUpdate(sql, 100), false);
+  assert.equal(await repo.claimTelegramUpdate(sql, 101), true);
+
+  const [app] = await repo.appsInStates(sql, ['finding_contact']);
+  const c = await repo.upsertContact(sql, { companyName: 'TikTok', name: 'A B', relation: 'cold', kind: 'engineer', source: 'manual', today: TODAY });
+  const mid = await repo.insertDraft(sql, { appId: app.id, contactId: c, kind: 'followup', subject: 'Re: S', body: 'b', linkedinNote: '', channel: 'email', threadId: 't9', inReplyTo: '<m1@mail>' });
+  assert.equal((await repo.latestDraft(sql, app.id)).in_reply_to, '<m1@mail>');
+  const claims = await Promise.all([repo.claimDraftForSend(sql, mid), repo.claimDraftForSend(sql, mid)]);
+  assert.deepEqual(claims.sort(), [false, true]);
+  await repo.releaseDraft(sql, mid);
+  assert.equal(await repo.claimDraftForSend(sql, mid), true, 'a failed send can be retried');
+  await repo.finalizeSent(sql, mid, 'email', { id: 'g1', threadId: 't9' });
+  await repo.releaseDraft(sql, mid);
+  assert.equal(await repo.claimDraftForSend(sql, mid), false, 'a delivered email is never released');
+
+  await repo.storeLoginCode(sql, 'old', 600);
+  await repo.storeLoginCode(sql, 'new', 600);
+  assert.equal(await repo.consumeLoginCode(sql, 'old'), false);
+  assert.equal(await repo.consumeLoginCode(sql, 'new'), true);
+});
+
 t('login codes are single use', async () => {
   const h = await sha256Hex('123456');
   await repo.storeLoginCode(sql, h, 600);

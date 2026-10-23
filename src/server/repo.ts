@@ -33,6 +33,25 @@ export async function kvSet(sql: Sql, key: string, value: unknown) {
 
 export const isPaused = async (sql: Sql) => (await kvGet<boolean>(sql, 'paused')) === true;
 
+/** Atomic counter in kv; returns the new value. Concurrent callers each get a distinct number. */
+export async function kvIncrement(sql: Sql, key: string): Promise<number> {
+  const r = await sql`INSERT INTO kv (key, value) VALUES (${key}, '1'::jsonb)
+                      ON CONFLICT (key) DO UPDATE SET
+                        value = to_jsonb((CASE WHEN jsonb_typeof(kv.value) = 'number' THEN (kv.value)::text::int ELSE 0 END) + 1),
+                        updated_at = now()
+                      RETURNING value`;
+  return Number(r[0].value);
+}
+
+/** True the first time an update id is seen. Telegram re-sends an update when it gets no 200 in time. */
+export async function claimTelegramUpdate(sql: Sql, updateId: number): Promise<boolean> {
+  const r = await sql`INSERT INTO kv (key, value) VALUES ('tg_last_update', to_jsonb(${updateId}::bigint))
+                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                        WHERE jsonb_typeof(kv.value) <> 'number' OR (kv.value)::text::bigint < ${updateId}::bigint
+                      RETURNING key`;
+  return r.length === 1;
+}
+
 // ---------- sources ----------
 
 export async function upsertSource(sql: Sql, s: SourceRow & { enabled?: boolean; tier?: string | null; notes?: string | null }) {
@@ -459,17 +478,17 @@ export async function pruneOldContacts(sql: Sql, today: string): Promise<number>
 
 export async function insertDraft(
   sql: Sql,
-  m: { appId: number; contactId: number; kind: 'ask' | 'followup'; subject: string; body: string; linkedinNote: string; channel: 'email' | 'linkedin'; threadId?: string | null }
+  m: { appId: number; contactId: number; kind: 'ask' | 'followup'; subject: string; body: string; linkedinNote: string; channel: 'email' | 'linkedin'; threadId?: string | null; inReplyTo?: string | null }
 ) {
-  const r = await sql`INSERT INTO messages (user_id, application_id, contact_id, kind, subject, body, linkedin_note, channel, gmail_thread_id)
-                      VALUES (${USER}, ${m.appId}, ${m.contactId}, ${m.kind}, ${m.subject}, ${m.body}, ${m.linkedinNote}, ${m.channel}, ${m.threadId ?? null})
+  const r = await sql`INSERT INTO messages (user_id, application_id, contact_id, kind, subject, body, linkedin_note, channel, gmail_thread_id, in_reply_to)
+                      VALUES (${USER}, ${m.appId}, ${m.contactId}, ${m.kind}, ${m.subject}, ${m.body}, ${m.linkedinNote}, ${m.channel}, ${m.threadId ?? null}, ${m.inReplyTo ?? null})
                       RETURNING id`;
   return r[0].id as number;
 }
 
 export async function latestDraft(sql: Sql, appId: number) {
   const r = await sql`
-    SELECT m.id, m.kind, m.subject, m.body, m.linkedin_note, m.channel, m.status, m.gmail_thread_id, m.gmail_message_id,
+    SELECT m.id, m.kind, m.subject, m.body, m.linkedin_note, m.channel, m.status, m.gmail_thread_id, m.gmail_message_id, m.in_reply_to,
            ct.id AS contact_id, ct.name AS contact_name, ct.headline AS contact_headline, ct.email, ct.linkedin_url, ct.relation, ct.kind AS contact_kind
     FROM messages m JOIN contacts ct ON ct.id = m.contact_id
     WHERE m.application_id = ${appId} AND m.user_id = ${USER} AND m.status = 'draft'
@@ -479,6 +498,24 @@ export async function latestDraft(sql: Sql, appId: number) {
 
 export async function updateDraftBody(sql: Sql, messageId: number, body: string) {
   await sql`UPDATE messages SET body = ${body} WHERE id = ${messageId} AND status = 'draft'`;
+}
+
+/** Claims a draft for sending. Only one caller can win, so a double tap cannot send twice. */
+export async function claimDraftForSend(sql: Sql, messageId: number): Promise<boolean> {
+  const r = await sql`UPDATE messages SET status = 'sent', sent_at = now() WHERE id = ${messageId} AND status = 'draft' RETURNING id`;
+  return r.length === 1;
+}
+
+export async function finalizeSent(sql: Sql, messageId: number, channel: 'email' | 'linkedin', gmail?: { id: string; threadId: string }) {
+  const r = await sql`UPDATE messages SET channel = ${channel}, gmail_message_id = ${gmail?.id ?? null},
+                        gmail_thread_id = COALESCE(${gmail?.threadId ?? null}, gmail_thread_id)
+                      WHERE id = ${messageId} RETURNING contact_id`;
+  if (r.length) await sql`UPDATE contacts SET last_contacted = CURRENT_DATE WHERE id = ${r[0].contact_id}`;
+}
+
+/** Puts a claimed draft back when the send failed. */
+export async function releaseDraft(sql: Sql, messageId: number) {
+  await sql`UPDATE messages SET status = 'draft', sent_at = NULL WHERE id = ${messageId} AND status = 'sent' AND gmail_message_id IS NULL`;
 }
 
 export async function markMessageSent(sql: Sql, messageId: number, channel: 'email' | 'linkedin', gmail?: { id: string; threadId: string }) {
@@ -507,6 +544,7 @@ export interface AwaitingReplyRow {
   id: number;
   application_id: number;
   kind: string;
+  subject: string;
   gmail_thread_id: string;
   sent_at: string;
   contact_id: number;
@@ -519,7 +557,7 @@ export interface AwaitingReplyRow {
 
 export async function sentEmailsAwaitingReply(sql: Sql): Promise<AwaitingReplyRow[]> {
   return sql<AwaitingReplyRow>`
-    SELECT m.id, m.application_id, m.kind, m.gmail_thread_id, m.sent_at::text AS sent_at, ct.id AS contact_id, ct.name AS contact_name, ct.email,
+    SELECT m.id, m.application_id, m.kind, m.subject, m.gmail_thread_id, m.sent_at::text AS sent_at, ct.id AS contact_id, ct.name AS contact_name, ct.email,
            j.title, a.state,
            (SELECT count(*)::int FROM messages f WHERE f.application_id = m.application_id AND f.kind = 'followup') AS followups
     FROM messages m JOIN contacts ct ON ct.id = m.contact_id JOIN applications a ON a.id = m.application_id JOIN jobs j ON j.id = a.job_id
@@ -698,6 +736,7 @@ export async function recentRuns(sql: Sql, limit = 40) {
 
 export async function storeLoginCode(sql: Sql, codeHash: string, ttlSeconds: number) {
   await sql`DELETE FROM login_codes WHERE expires_at < now() OR used`;
+  await sql`UPDATE login_codes SET used = true WHERE NOT used`; // only the newest code is ever valid
   await sql`INSERT INTO login_codes (code_hash, expires_at) VALUES (${codeHash}, now() + make_interval(secs => ${ttlSeconds}))`;
 }
 

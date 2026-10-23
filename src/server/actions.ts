@@ -27,7 +27,11 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
     switch (action) {
       case 'apply': {
         await repo.applyEvent(sql, appId, 'decide.apply', 'you');
-        await emit(EV.apply, { applicationId: appId });
+        try {
+          await emit(EV.apply, { applicationId: appId });
+        } catch {
+          return { text: `Marked ${label} as Apply, but the workflow did not start. Send /retry ${appId} to start it.` };
+        }
         return { text: `Applying to ${label}. Resume first, then a contact search. I will message you at each step.` };
       }
       case 'skip':
@@ -64,7 +68,7 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
       case 'drop': {
         const draft = await repo.latestDraft(sql, appId);
         if (draft) await repo.markMessage(sql, draft.id, 'dropped');
-        if (draft?.kind === 'ask' && app.state === 'awaiting_send') {
+        if (app.state === 'awaiting_send') {
           await repo.applyEvent(sql, appId, 'outreach.dropped', 'you');
           await emit(EV.outreachDecided, { applicationId: appId, decision: 'dropped' });
         }

@@ -1,6 +1,7 @@
 /** Edit a referral draft from the Job page. Sending still goes through the Send button. */
 import { NextResponse } from 'next/server';
 import { getSql } from '@/src/server/sql';
+import { safeBack } from '@/src/server/redirect';
 import * as repo from '@/src/server/repo';
 
 export const runtime = 'nodejs';
@@ -15,5 +16,5 @@ export async function POST(req: Request) {
   await repo.updateDraftBody(sql, draft.id, body.slice(0, 4000));
   await repo.logEvent(sql, 'message', draft.id, 'draft.edited', 'you');
   const back = String(form.get('back') ?? '/');
-  return NextResponse.redirect(new URL(back.startsWith('/') ? back : '/', req.url), 303);
+  return NextResponse.redirect(new URL(safeBack(back), req.url), 303);
 }

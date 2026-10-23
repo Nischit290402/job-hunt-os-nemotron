@@ -70,5 +70,6 @@ export async function setWebhook(appUrl: string) {
     secret_token: env.telegramWebhookSecret(),
     allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true,
+    max_connections: 1, // updates arrive one at a time and in order, which the update_id dedupe relies on
   });
 }

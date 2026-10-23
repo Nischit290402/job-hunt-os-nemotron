@@ -12,8 +12,9 @@ export async function httpGet(url: string, headers: Record<string, string> = {},
   return request(url, { method: 'GET', headers }, timeoutMs);
 }
 
-export async function httpPost(url: string, body: unknown, headers: Record<string, string> = {}, timeoutMs = 60_000): Promise<HttpResult> {
-  return request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }, timeoutMs);
+/** retry: false for slow or non-idempotent calls, so one call never runs longer than timeoutMs. */
+export async function httpPost(url: string, body: unknown, headers: Record<string, string> = {}, timeoutMs = 60_000, retry = true): Promise<HttpResult> {
+  return request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }, timeoutMs, retry ? 0 : 1);
 }
 
 async function request(url: string, init: RequestInit, timeoutMs: number, attempt = 0): Promise<HttpResult> {

@@ -51,14 +51,15 @@ tests/           unit tests + Postgres integration tests (real schema, real SQL)
 
 ## Telegram commands
 
-`/today`, `/brief`, `/pipeline`, `/job <company>`, `/prefs`, `/prefs rule <text>`, `/prefs exclude <term>`, `/prefs drop <id>`, `/cap <company> <n>`, `/referral <app id> <link>`, `/submitted <app id>`, `/outcome <app id> interview|offer|rejected`, `/pause`, `/resume`, `/health`. Any other text goes to the read-only coach.
+`/today`, `/brief`, `/pipeline`, `/job <company>`, `/prefs`, `/prefs rule <text>`, `/prefs exclude <term>`, `/prefs drop <id>`, `/cap <company> <n>`, `/referral <app id> <link>`, `/submitted <app id>`, `/outcome <app id> interview|offer|rejected`, `/pause`, `/resume`, `/retry <app id>`, `/unlock`, `/health`. Any other text goes to the read-only coach.
 
-The dashboard sign-in sends a 6-digit code to your Telegram chat; there are no passwords.
+The dashboard sign-in sends a 6-digit code to your Telegram chat; there are no passwords. Only the newest code works, each code allows 5 tries, and at most 10 codes are issued a day. If sign-in locks, send `/unlock` to the bot.
 
 ## Safety model
 
-- **Telegram:** the webhook checks Telegram's secret header, and the bot answers only `TELEGRAM_CHAT_ID`. Buttons carry HMAC-signed, expiring payloads, so a forged or stale tap does nothing.
-- **Sending:** Gmail goes out only from a signed Send tap. There is a cap of 5 new emails a day and 20 a week, one follow-up, and a do-not-contact list. Bounces add the address to that list automatically. `/pause` stops all outward actions.
+- **Telegram:** the webhook checks Telegram's secret header, and the bot answers only messages and taps from you in your own chat. Buttons carry HMAC-signed, expiring payloads, so a forged or stale tap does nothing. Commands you type there (`/submitted`, `/outcome`) count as taps. Each update is handled once, even if Telegram re-sends it.
+- **Laptop agent:** its bearer token can only report a form as filled or failed; it cannot send anything or mark an application submitted.
+- **Sending:** Gmail goes out only from a signed Send tap, and each draft is claimed before sending, so a double tap sends once. There is a cap of 5 new emails a day and 20 a week, one follow-up, and a do-not-contact list. Bounces add the address to that list automatically. `/pause` stops all outward actions.
 - **LinkedIn:** the system never opens LinkedIn. Contacts come from your own export and from search-engine results (titles and snippets). You send LinkedIn notes yourself. LinkedIn's User Agreement (section 8.2) bans bots, scraping and browser plug-ins, so none are used, including Claude in Chrome.
 - **Applications:** the agent fills forms in your own browser and never clicks Submit. It skips CAPTCHAs and leaves fields it cannot match.
 - **Untrusted text:** job descriptions and email replies are treated as data. The models that read them have no tools that act.
