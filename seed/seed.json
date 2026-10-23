@@ -1,0 +1,34 @@
+{
+  "weekly_target": 5,
+  "outreach_summary": [
+    "NTU MSc AI (Aug 2026 to Dec 2027), IIT Indore B.Tech CSE (8.6/10).",
+    "Flipkart SDE-I, 2 years: Java microservices in Pricing and Promotions; fee-adjustment platform with INR 72M realised in month one; Storm cluster migration cut alerts 75%.",
+    "Second author, WACV 2025: spatial-spectral attention for hyperspectral denoising, SOTA 48.9 dB PSNR on ICVL.",
+    "OmniRec (TikTok TechJam 2026): recommender research agent, 0.6168 vs 0.5946 organiser baseline on KuaiRand-Pure.",
+    "Codeforces Specialist (1460)."
+  ],
+  "preferences": [
+    { "kind": "rule", "text": "Core ML engineer or LLM engineer roles only. Score AI agent or agentic application roles low, even at target companies." },
+    { "kind": "rule", "text": "Quant roles with a real ML component are a strong yes." },
+    { "kind": "exclude_term", "text": "ai agent" },
+    { "kind": "exclude_term", "text": "agentic" },
+    { "kind": "exclude_term", "text": "agent engineer" }
+  ],
+  "caps": [{ "company": "TikTok", "cap": 2 }],
+  "applied": [
+    {
+      "company": "TikTok",
+      "title": "Machine Learning Engineer Intern - Global E-Commerce - Recommendation - 2027 Start",
+      "url": "https://lifeattiktok.com/search/7666290648937056565",
+      "applied_on": "2026-09-30",
+      "track": "sg"
+    },
+    {
+      "company": "JPMorgan Chase",
+      "title": "2027 Markets Quantitative Trading & Research Analyst (off-cycle)",
+      "url": "https://careers.jpmorgan.com/",
+      "applied_on": "2026-09-29",
+      "track": "sg"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+.vercel
+.DS_Store
+# personal files that must never be committed
+resume-service/assets/*
+!resume-service/assets/README.md
+agent/answers.local.json
+agent/.chrome-profile/
+agent/node_modules/
+__pycache__/

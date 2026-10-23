@@ -1,0 +1,172 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { buildRules, evaluateJob, familyOf, startWindow, type RawJob } from '../src/core/filters';
+import { DEFAULT_TERMS, withExtraTerms } from '../src/core/terms';
+import { canonicalKey, normCompany, normUrl, xkey } from '../src/core/keys';
+import { greenhouse, lever, ashby, mcf, mdlist, crawl, ParseError } from '../src/core/sources';
+import { htmlToText } from '../src/core/html';
+import { addDays, daysBetween, sgtAt, sgtDate, weekStart } from '../src/core/time';
+
+const R = buildRules(DEFAULT_TERMS);
+const SG = 'Singapore';
+const ev = (title: string, location: string, extra: Partial<RawJob> = {}) =>
+  evaluateJob({ company: 'X', title, location, url: 'https://x/1', posted: '', channel: 'ATS', ...extra }, R);
+
+// ---------- filters (ported from the v0.3.1 suite; tab names map to tracks) ----------
+const TRACK: Record<string, string> = { SG_Internships: 'sg', Remote_Programs: 'remote', FT_Watch: 'ft', Archive: 'archive' };
+const cases: [string, string, 'keep' | 'reject', string, Partial<RawJob>?][] = [
+  ['Machine Learning Engineer Intern, Summer 2027', SG, 'keep', 'SG_Internships'],
+  ['Senior Machine Learning Engineer', SG, 'reject', 'senior_title'],
+  ['Research Scientist Intern, PhD', SG, 'reject', 'phd_only'],
+  ['Research Scientist Intern, PhD or MS', SG, 'keep', 'SG_Internships'],
+  ['Quantitative Researcher Intern', SG, 'keep', 'SG_Internships'],
+  ['ML Platform Intern', SG, 'keep', 'Archive'],
+  ['Machine Learning Infrastructure Intern', SG, 'keep', 'Archive'],
+  ['Software Engineer Intern 2026', SG, 'reject', 'wrong_year'],
+  ['Machine Learning Intern, Summer 2026', SG, 'reject', 'wrong_year'],
+  ['Machine Learning Engineer Intern, Summer 2028', SG, 'reject', 'wrong_year'],
+  ['Data Engineer Intern', SG, 'reject', 'not_ai_scope'],
+  ['AI Research Intern', 'London, UK', 'reject', 'location'],
+  ['Machine Learning Intern', 'Remote - US', 'keep', 'Remote_Programs'],
+  ['Cohere Labs Scholar', 'Remote', 'keep', 'Remote_Programs', { hint: 'remote' }],
+  ['Cohere Labs Scholar', 'Remote', 'reject', 'not_ai_scope'],
+  ['Machine Learning Engineer', SG, 'keep', 'FT_Watch'],
+  ['Machine Learning Engineer, New Grad 2028', SG, 'keep', 'FT_Watch'],
+  ['Machine Learning Engineer, New Grad 2026', SG, 'reject', 'wrong_year'],
+  ['Management Consulting Intern (AI)', SG, 'reject', 'excluded_role'],
+  ['Operations Research Intern', SG, 'keep', 'SG_Internships'],
+  ['Product Manager Intern, AI', SG, 'reject', 'excluded_role'],
+  ['Quantitative Trader Intern', 'Singapore; Chicago', 'keep', 'SG_Internships'],
+  ['AI Engineer', 'Remote', 'reject', 'not_program'],
+  ['Marketing Intern, AI', SG, 'reject', 'excluded_role'],
+  ['Computer Vision Intern', 'SG', 'keep', 'SG_Internships'],
+  ['Software Engineer Intern', SG, 'reject', 'not_ai_scope'],
+  ['Postdoctoral Fellow, Machine Learning', SG, 'reject', 'excluded_role'],
+  ['Full Stack Engineer Intern, AI', SG, 'reject', 'excluded_role'],
+];
+for (const [title, loc, action, x, extra] of cases) {
+  test(`filter: ${title} @ ${loc}`, () => {
+    const r = ev(title, loc, extra);
+    assert.equal(r.action, action, JSON.stringify(r));
+    assert.equal(r.action === 'keep' ? r.track : r.reason, action === 'keep' ? TRACK[x] : x);
+  });
+}
+
+test('filter: MCF intern flag, stale postings, api-only remote flag, eligibility flag', () => {
+  const k = ev('Machine Learning Research Engineer', SG, { intern: true });
+  assert.equal(k.action === 'keep' && k.track, 'sg');
+  assert.equal(ev('Machine Learning Engineer', SG, { posted: '2024-05-01' }).action === 'reject' && 'stale', 'stale');
+  const r = ev('Machine Learning Intern', 'Boston, MA', { remote: true });
+  assert.equal(r.action === 'keep' && r.hoursFlag, 'VERIFY <=16h/wk; VERIFY remote');
+  const e = evaluateJob({ company: 'DSO National Laboratories', title: 'AI Research Intern', location: SG, url: '', posted: '', channel: 'ATS' }, R);
+  assert.equal(e.action === 'keep' && e.eligFlag, 'VERIFY eligibility');
+});
+
+test('preferences can add exclude terms (agent roles out after the Sep 30 direction change)', () => {
+  const R2 = buildRules(withExtraTerms(DEFAULT_TERMS, { exclude: ['agent', 'agentic'] }));
+  const r = evaluateJob({ company: 'TikTok', title: 'AI Agent Algorithm Engineer Intern - 2027 Start', location: SG, url: '', posted: '', channel: 'ATS' }, R2);
+  assert.deepEqual(r, { action: 'reject', reason: 'excluded_role' });
+});
+
+test('family and start window', () => {
+  assert.equal(familyOf('LLM Algorithm Engineer Intern'), 'llm/nlp');
+  assert.equal(familyOf('Algorithmic Trading Intern'), 'quant');
+  assert.equal(startWindow('Summer 2027'), 'Summer');
+  assert.equal(startWindow('Off-Cycle Intern'), 'Jan (shiftable)');
+  assert.equal(startWindow('Intern'), '');
+});
+
+// ---------- keys ----------
+test('canonical key collapses the v0.3.1 duplicates', () => {
+  // AppLovin: board link vs aggregator link with utm_source
+  assert.equal(
+    canonicalKey({ url: 'https://boards.greenhouse.io/applovin/jobs/4713038006?gh_jid=4713038006&utm_source=freehire.me' }),
+    canonicalKey({ url: 'https://boards.greenhouse.io/applovin/jobs/4713038006?gh_jid=4713038006' })
+  );
+  // Jump: company site gh_jid link equals the API's numeric id
+  assert.equal(canonicalKey({ url: 'https://www.jumptrading.com/hr/job?gh_jid=8027939' }), canonicalKey({ url: 'x', atsName: 'greenhouse', atsJobId: '8027939' }));
+  assert.equal(canonicalKey({ url: 'https://razer.wd3.myworkdayjobs.com/en-US/careers/job/Singapore-Razer-AI-Center/Reinforcement-Learning-Intern_JR2026007737' }), 'wd:razer:jr2026007737');
+  assert.equal(
+    canonicalKey({ url: 'https://www.mycareersfuture.gov.sg/job/engineering/research-intern-xg-tech-1c9ff81ef4ce3a921802b19020f9c53f' }),
+    'mcf:1c9ff81ef4ce3a921802b19020f9c53f'
+  );
+  assert.match(canonicalKey({ url: 'https://lifeattiktok.com/search/7666290648937056565' }), /^url:/);
+});
+
+test('normUrl, normCompany, xkey', () => {
+  assert.equal(normUrl('HTTPS://www.a.com/x/?b=2&utm_source=z&a=1'), 'a.com/x?a=1&b=2');
+  assert.equal(normUrl('not a url'), '');
+  assert.equal(normCompany('TikTok Pte. Ltd.'), 'bytedance');
+  assert.equal(normCompany('Meta Platforms, Inc.'), 'meta');
+  assert.equal(xkey({ company: 'Grab Holdings Inc.', title: 'ML Intern (Singapore)', location: 'Singapore' }), xkey({ company: 'Grab', title: 'ML Intern', location: 'Singapore, SG' }));
+});
+
+// ---------- source parsers ----------
+const src = (type: any, extra: any = {}) => ({ id: 's', type, company: 'Acme', slug_or_url: 'acme', ...extra });
+
+test('greenhouse parser keeps the job description and the ATS id', () => {
+  const body = JSON.stringify({
+    jobs: [{ id: 42, title: 'ML Intern', absolute_url: 'https://boards.greenhouse.io/acme/jobs/42', location: { name: 'Singapore' }, first_published: '2026-10-01T02:00:00Z', content: '&lt;p&gt;Build &amp;amp; ship models.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;PyTorch&lt;/li&gt;&lt;/ul&gt;' }],
+  });
+  const [j] = greenhouse.parse(body, src('greenhouse'));
+  assert.equal(j.atsJobId, '42');
+  assert.equal(j.posted, '2026-10-01');
+  assert.match(j.jdText!, /Build & ship models\./);
+  assert.match(j.jdText!, /- PyTorch/);
+  assert.throws(() => greenhouse.parse('<html>', src('greenhouse')), ParseError);
+});
+
+test('lever and ashby parsers', () => {
+  const lv = lever.parse(JSON.stringify([{ id: 'abc', text: 'AI Intern', hostedUrl: 'https://jobs.lever.co/acme/abc', categories: { location: 'Singapore' }, createdAt: 1_790_000_000_000, descriptionPlain: 'About the team', lists: [{ text: 'You will', content: '<li>train models</li>' }], workplaceType: 'onsite' }]), src('lever'));
+  assert.equal(lv[0].location, 'Singapore');
+  assert.match(lv[0].jdText!, /About the team[\s\S]*train models/);
+  const ab = ashby.parse(JSON.stringify({ jobs: [{ id: 'u1', title: 'ML Intern', location: 'Singapore', secondaryLocations: [{ location: 'Remote' }], jobUrl: 'https://jobs.ashbyhq.com/acme/u1', publishedAt: '2026-10-02', workplaceType: 'Remote', descriptionPlain: 'Train LLMs' }, { id: 'u2', title: 'Hidden', isListed: false }] }), src('ashby'));
+  assert.equal(ab.length, 1);
+  assert.equal(ab[0].remote, true);
+  assert.equal(ab[0].location, 'Singapore; Remote');
+});
+
+test('mcf parser and markdown list parser', () => {
+  const m = mcf.parse(JSON.stringify({ results: [{ uuid: 'f'.repeat(32), title: 'AI Intern', postedCompany: { name: 'Acme Pte Ltd' }, metadata: { newPostingDate: '2026-10-20' }, employmentTypes: [{ employmentType: 'Internship/Attachment' }] }] }));
+  assert.equal(m[0].intern, true);
+  assert.equal(canonicalKey(m[0]), `mcf:${'f'.repeat(32)}`);
+  const md = [
+    '| Company | Position | Location | Posting | Age |',
+    '| --- | --- | --- | --- | --- |',
+    '| <a href="https://x.com"><strong>Grab</strong></a> | Machine Learning Intern 🛂 | Singapore | <div align="center"><a href="https://grab.com/j/1"><img src="a.png" alt="Apply"></a></div> | 3d |',
+    '| ↳ | Computer Vision Intern | Singapore<br>Remote | <a href="https://grab.com/j/2">Apply</a> | 10d |',
+    '| **[Sea](https://sea.com)** | AI Intern | Singapore | [Apply](https://sea.com/j/3) | 0d |',
+    '| Broken | No Link | Singapore | n/a | 1d |',
+  ].join('\n');
+  const jobs = mdlist.parse(md, src('mdlist'), Date.parse('2026-10-23T04:00:00Z'));
+  assert.equal(jobs.length, 3);
+  assert.equal(jobs[0].title, 'Machine Learning Intern');
+  assert.equal(jobs[1].company, 'Grab');
+  assert.equal(jobs[1].location, 'Singapore; Remote');
+  assert.equal(jobs[0].posted, '2026-10-20');
+});
+
+test('crawl parser: Optiver and Google shapes, Google pagination', () => {
+  const o = crawl.parse('### [Quantitative Research Intern - Singapore](https://optiver.com/join-us/jobs/1234/)\n[Home](https://optiver.com/)', src('crawl', { company: 'Optiver', slug_or_url: 'https://optiver.com/x', link_pattern: '/join-us/jobs/', default_location: SG }));
+  assert.equal(o.length, 1);
+  const g = crawl.parse('[Learn more about ML Intern, Summer 2027](https://www.google.com/about/careers/applications/jobs/results/12345-ml)\n[Rel](/about/careers/applications/jobs/results/777-x)', src('crawl', { company: 'Google', slug_or_url: 'https://www.google.com/about/careers/applications/jobs/results/?q=intern', link_pattern: '/jobs/results/\\d||Learn more about ' }));
+  assert.equal(g.length, 2);
+  assert.equal(g[0].title, 'ML Intern, Summer 2027');
+  assert.equal(crawl.pageUrl('https://www.google.com/about/careers/applications/jobs/results/?q=ml', 2), 'https://www.google.com/about/careers/applications/jobs/results/?q=ml&page=2');
+  assert.equal(crawl.pageUrl('https://optiver.com/x', 2), '');
+});
+
+test('htmlToText strips scripts and keeps list structure', () => {
+  assert.equal(htmlToText('<script>x()</script><p>A &amp; B</p><ul><li>one</li><li>two</li></ul>'), 'A & B\n\n- one\n- two');
+});
+
+// ---------- time ----------
+test('Singapore time helpers', () => {
+  assert.equal(sgtDate(Date.parse('2026-10-22T16:30:00Z')), '2026-10-23');
+  assert.equal(sgtAt('2026-10-24', '07:45').toISOString(), '2026-10-23T23:45:00.000Z');
+  assert.equal(daysBetween('2026-10-23', '2026-11-02'), 10);
+  assert.equal(addDays('2026-10-31', 1), '2026-11-01');
+  assert.equal(weekStart('2026-10-25'), '2026-10-19'); // Sunday belongs to the week that started Monday
+  assert.equal(weekStart('2026-10-19'), '2026-10-19');
+});
