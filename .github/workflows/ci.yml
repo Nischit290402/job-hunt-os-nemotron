@@ -67,7 +67,7 @@ jobs:
           docker build --progress=plain -t resume-svc . > build.log 2>&1
           code=$?
           tail -40 build.log
-          if [ $code -ne 0 ]; then echo "::error title=docker build::$(grep -vE 'sha256|extracting|^#[0-9]+ (DONE|CACHED)' build.log | tail -25 | tr '\n' '|')"; exit 1; fi
+          if [ $code -ne 0 ]; then grep -vE 'sha256|extracting|DONE|CACHED|debconf|^\s*$' build.log | tail -10 | sed 's/::/: /g' | while IFS= read -r l; do echo "::error::$l"; done; exit 1; fi
       - name: fontawesome is installed and a base compiles
         run: |
           set +e
