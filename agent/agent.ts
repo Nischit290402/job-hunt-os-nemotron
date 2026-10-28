@@ -127,12 +127,9 @@ export async function laptopFallback(): Promise<void> {
   }
 }
 
-if (SYNC_ONLY) {
-  await syncMaster(true);
-  process.exit(0);
-}
+if (SYNC_ONLY) await syncMaster(true); // then the process ends on its own; process.exit() here trips a libuv assert on Windows
 
-const answers: Answers = JSON.parse(readFileSync(ANSWERS, 'utf8'));
+const answers: Answers = SYNC_ONLY ? ({} as Answers) : JSON.parse(readFileSync(ANSWERS, 'utf8'));
 
 async function nextTask() {
   const r = await fetch(`${BASE}/api/agent/next`, { headers: auth });
@@ -197,7 +194,9 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (!SYNC_ONLY) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
