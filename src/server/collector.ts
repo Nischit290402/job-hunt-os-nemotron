@@ -4,13 +4,13 @@
  */
 import type { Sql } from './sql';
 import * as repo from './repo';
-import { httpGet } from './http';
+import { httpGet, httpPost } from './http';
 import { scrape } from './firecrawl';
 import { env } from './env';
 import { buildRules, evaluateJob, type RawJob } from '../core/filters';
 import { DEFAULT_TERMS, withExtraTerms } from '../core/terms';
 import { canonicalKey } from '../core/keys';
-import { ashby, channelOf, crawl, detailPlan, freehire, greenhouse, lever, mcf, mdlist, ParseError, smartrecruiters, type SourceRow } from '../core/sources';
+import { ashby, channelOf, crawl, detailPlan, freehire, greenhouse, lever, mcf, mdlist, ParseError, smartrecruiters, workday, type SourceRow } from '../core/sources';
 import { htmlToText } from '../core/html';
 
 const MAX_NEW_PER_SOURCE = 150;
@@ -59,6 +59,35 @@ async function fetchJobs(sql: Sql, s: SourceRow, today: string): Promise<{ jobs:
         if (r.jobs.length < 100) break;
       }
       return { status: 'ok', jobs, note: '', credits: 0 };
+    }
+    case 'workday': {
+      const reqs = workday.requests(s);
+      if (!reqs.length) return { status: 'failed', jobs: [], note: 'board url not recognised', credits: 0 };
+      const jobs: RawJob[] = [];
+      let okCount = 0;
+      let last = '';
+      let skipQuery = '';
+      for (const req of reqs) {
+        const q = req.tag!.split('#')[0];
+        if (q === skipQuery) continue;
+        const r = await httpPost(req.url, req.body, req.headers, 20_000);
+        if (r.status !== 200) {
+          last = `${q}: HTTP ${r.status || r.error}`;
+          skipQuery = q;
+          continue;
+        }
+        try {
+          const page = workday.parse(r.text, s);
+          okCount++;
+          jobs.push(...page);
+          if (page.length < 20) skipQuery = q; // last page for this search
+        } catch (e) {
+          last = `${q}: ${e instanceof Error ? e.message : e}`;
+          skipQuery = q;
+        }
+      }
+      if (!okCount) return { status: 'failed', jobs: [], note: last || 'no queries', credits: 0 };
+      return { status: 'ok', jobs, note: `${okCount} pages ok`, credits: 0 };
     }
     case 'mcf':
     case 'freehire': {

@@ -45,7 +45,7 @@ after(() => drop());
 const t = (name: string, fn: () => Promise<void>) => test(name, { skip: ok ? false : 'no Postgres reachable' }, fn);
 
 t('seed: sources, caps, preferences and past applications (TikTok counts against its cap)', async () => {
-  assert.equal((await repo.listSources(sql)).length, 24);
+  assert.equal((await repo.listSources(sql)).length, 31);
   const prefs = await repo.preferenceBundle(sql);
   assert.deepEqual(prefs.exclude, ['ai agent', 'agentic', 'agent engineer']);
   assert.equal((await repo.employerInfo(sql)).get('bytedance')?.used, 1);
@@ -81,7 +81,7 @@ t('Today: one job per employer, judged jobs only, brief data carries scores and 
   assert.equal(d.today.length, 1);
   assert.equal(d.today[0].company, 'DRW');
   assert.equal(d.today[0].score, 81);
-  assert.equal(d.health.sourcesTotal, 24);
+  assert.equal(d.health.sourcesTotal, 31);
   assert.equal(d.week.target, 5);
   // Running it again the same day changes nothing.
   assert.equal((await buildToday(sql, TODAY)).added, 0);

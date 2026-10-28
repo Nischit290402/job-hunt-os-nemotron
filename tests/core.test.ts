@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { buildRules, evaluateJob, familyOf, startWindow, type RawJob } from '../src/core/filters';
 import { DEFAULT_TERMS, withExtraTerms } from '../src/core/terms';
 import { canonicalKey, normCompany, normUrl, xkey } from '../src/core/keys';
-import { greenhouse, lever, ashby, mcf, mdlist, crawl, ParseError } from '../src/core/sources';
+import { greenhouse, lever, ashby, mcf, mdlist, crawl, workday, workdayBoard, workdayPosted, workdayCxsUrl, ParseError } from '../src/core/sources';
 import { htmlToText } from '../src/core/html';
 import { addDays, daysBetween, sgtAt, sgtDate, weekStart } from '../src/core/time';
 
@@ -169,4 +169,23 @@ test('Singapore time helpers', () => {
   assert.equal(addDays('2026-10-31', 1), '2026-11-01');
   assert.equal(weekStart('2026-10-25'), '2026-10-19'); // Sunday belongs to the week that started Monday
   assert.equal(weekStart('2026-10-19'), '2026-10-19');
+});
+
+test('workday: board URL, search requests, postings parsed into job links the detail API understands', () => {
+  const s = { id: 'wd_razer', type: 'workday' as const, company: 'Razer', slug_or_url: 'https://razer.wd3.myworkdayjobs.com/en-US/careers', default_location: 'Singapore' };
+  assert.deepEqual(workdayBoard(s.slug_or_url), { origin: 'https://razer.wd3.myworkdayjobs.com', tenant: 'razer', site: 'careers' });
+  const reqs = workday.requests(s, ['intern'], 2);
+  assert.equal(reqs[1].url, 'https://razer.wd3.myworkdayjobs.com/wday/cxs/razer/careers/jobs');
+  assert.deepEqual(reqs[1].body, { appliedFacets: {}, limit: 20, offset: 20, searchText: 'intern' });
+  const now = Date.parse('2026-10-29T02:00:00Z');
+  const jobs = workday.parse(JSON.stringify({ total: 2, jobPostings: [
+    { title: 'Reinforcement Learning Intern', externalPath: '/job/Singapore-Razer-AI-Center/Reinforcement-Learning-Intern_JR2026007737', locationsText: 'Singapore', postedOn: 'Posted 3 Days Ago' },
+    { title: 'AI Engineer Intern', externalPath: '/job/Singapore/AI-Engineer-Intern_JR2026006947', locationsText: '2 Locations', postedOn: 'Posted 30+ Days Ago' },
+  ] }), s, now);
+  assert.equal(jobs[0].url, 'https://razer.wd3.myworkdayjobs.com/en-US/careers/job/Singapore-Razer-AI-Center/Reinforcement-Learning-Intern_JR2026007737');
+  assert.equal(jobs[0].posted, '2026-10-26');
+  assert.equal(jobs[1].location, '2 Locations; Singapore');
+  assert.match(workdayCxsUrl(jobs[0].url), /\/wday\/cxs\/razer\/careers\/job\//);
+  assert.equal(workdayPosted('Posted Today', now), '2026-10-29');
+  assert.throws(() => workday.parse('{}', s), ParseError);
 });

@@ -9,7 +9,7 @@ import { cleanTitle } from '../keys';
 import { toSgtDate } from '../time';
 import type { Channel, RawJob } from '../filters';
 
-export type SourceType = 'greenhouse' | 'lever' | 'ashby' | 'smartrecruiters' | 'mcf' | 'freehire' | 'mdlist' | 'crawl';
+export type SourceType = 'greenhouse' | 'lever' | 'ashby' | 'smartrecruiters' | 'workday' | 'mcf' | 'freehire' | 'mdlist' | 'crawl';
 
 export interface SourceRow {
   id: string;
@@ -30,7 +30,7 @@ export interface Request {
 
 const enc = encodeURIComponent;
 const CHANNEL: Record<SourceType, Channel> = {
-  greenhouse: 'ATS', lever: 'ATS', ashby: 'ATS', smartrecruiters: 'ATS', mcf: 'SGP', freehire: 'AGG', mdlist: 'LIST', crawl: 'CRAWL',
+  greenhouse: 'ATS', lever: 'ATS', ashby: 'ATS', smartrecruiters: 'ATS', workday: 'ATS', mcf: 'SGP', freehire: 'AGG', mdlist: 'LIST', crawl: 'CRAWL',
 };
 export const channelOf = (t: SourceType): Channel => CHANNEL[t];
 
@@ -148,6 +148,66 @@ export const smartrecruiters = {
       .map((k) => (sec[k]?.text ? htmlToText(sec[k].text) : ''))
       .filter(Boolean)
       .join('\n\n');
+  },
+};
+
+// ---------- Workday (UNVERIFIED shape; the public JSON search behind every myworkdayjobs.com board) ----------
+// slug_or_url is the board URL, e.g. https://razer.wd3.myworkdayjobs.com/careers (locale segment optional).
+export const WORKDAY_QUERIES = ['intern', 'machine learning', 'artificial intelligence', 'research'];
+
+export function workdayBoard(url: string): { origin: string; tenant: string; site: string } | null {
+  const m = String(url).match(/^(https:\/\/([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com)\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/?#]+)/);
+  return m ? { origin: m[1], tenant: m[2], site: m[3] } : null;
+}
+
+/** "Posted Today", "Posted Yesterday", "Posted 3 Days Ago", "Posted 30+ Days Ago" -> 'YYYY-MM-DD' (30+ maps to 30). */
+export function workdayPosted(text: string, now: number = Date.now()): string {
+  const t = String(text || '').toLowerCase();
+  let days: number | null = null;
+  if (/today/.test(t)) days = 0;
+  else if (/yesterday/.test(t)) days = 1;
+  else {
+    const m = t.match(/(\d+)\+?\s*days?/);
+    if (m) days = Number(m[1]);
+  }
+  return days === null ? '' : toSgtDate(now - days * 86_400_000);
+}
+
+export const workday = {
+  /** POST bodies; Workday pages 20 at a time. */
+  requests(s: SourceRow, queries: string[] = WORKDAY_QUERIES, pages = 3): (Request & { body: object })[] {
+    const b = workdayBoard(s.slug_or_url);
+    if (!b) return [];
+    const url = `${b.origin}/wday/cxs/${b.tenant}/${b.site}/jobs`;
+    return queries.flatMap((q) =>
+      Array.from({ length: pages }, (_, i) => ({
+        url,
+        headers: { Accept: 'application/json' },
+        tag: `${q}#${i}`,
+        body: { appliedFacets: {}, limit: 20, offset: i * 20, searchText: q },
+      }))
+    );
+  },
+  parse(body: string, s: SourceRow, now: number = Date.now()): RawJob[] {
+    const data = parseJson(body);
+    if (!data || !Array.isArray(data.jobPostings)) throw new ParseError('workday bad json');
+    const b = workdayBoard(s.slug_or_url);
+    if (!b) throw new ParseError('workday board url not recognised');
+    return data.jobPostings
+      .filter((j: any) => j.externalPath && j.title)
+      .map((j: any) => {
+        const loc = String(j.locationsText || '');
+        const path = String(j.externalPath);
+        return {
+          company: s.company,
+          title: j.title,
+          // "2 Locations" hides the cities; the board's default location (if set) keeps Singapore boards in scope.
+          location: /locations?$/i.test(loc) ? `${loc}; ${s.default_location || ''}`.trim() : loc,
+          url: `${b.origin}/en-US/${b.site}${path}`,
+          posted: workdayPosted(j.postedOn, now),
+          channel: 'ATS' as const,
+        };
+      });
   },
 };
 
