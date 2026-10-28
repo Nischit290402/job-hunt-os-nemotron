@@ -66,5 +66,8 @@ jobs:
           docker build -t resume-svc .
       - name: fontawesome is installed and a base compiles
         run: |
-          docker run --rm resume-svc kpsewhich fontawesome.sty
-          docker run --rm resume-svc sh -c 'cd /tmp && cp /app/assets/bases/Base_MLEngineer.tex t.tex && pdflatex -interaction=nonstopmode -halt-on-error t.tex >/dev/null && pdfinfo t.pdf | grep Pages'
+          set +e
+          out=$(docker run --rm resume-svc sh -c 'kpsewhich fontawesome.sty && cd /tmp && cp /app/assets/bases/Base_MLEngineer.tex t.tex && pdflatex -interaction=nonstopmode -halt-on-error t.tex | tail -25 && pdfinfo t.pdf | grep Pages' 2>&1)
+          code=$?
+          echo "$out"
+          if [ $code -ne 0 ]; then echo "::error title=resume image::$(echo "$out" | tail -20 | tr '\n' '|')"; exit 1; fi
