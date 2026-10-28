@@ -34,12 +34,17 @@ python -c "import secrets; print(secrets.token_hex(32))"
 2. Create project: name `job-hunt-os`, region **AWS Asia Pacific 1 (Singapore)**.
 3. Dashboard, **Connect**. Turn **Connection pooling** on. Copy the connection string into `DATABASE_URL`.
 
-## 3. Anthropic API (5 min)
+## 3. Anthropic API (5 min, free on Max 5x)
 
-1. console.anthropic.com, sign in.
-2. **Settings > Billing**: add credits (USD 10 is enough to start).
-3. **Settings > Limits**: set a monthly spend limit (for example USD 20). The app also stops at `MONTHLY_INPUT_TOKEN_CAP`.
-4. **API Keys > Create key**, name `job-hunt-os`. Copy into `ANTHROPIC_API_KEY`.
+Max 5x includes USD 100 of API credits a month. This app needs roughly USD 10 to 20 of it.
+
+1. Sign in at platform.claude.com with the same account as your Max plan. Create an organization if it asks.
+2. On claude.ai (web browser): **Settings > Billing > API credits**. Link that Console organization and accept the
+   terms. You can link only one organization and cannot change it yourself, so pick the one you will build in.
+   (New subscribers can claim after 7 days on Max.)
+3. In the Console: **Workspaces > Create** `job-hunt-os`, then set its monthly spend limit to USD 30. The app also stops
+   at `MONTHLY_INPUT_TOKEN_CAP`.
+4. **API Keys > Create key** in the `job-hunt-os` workspace. Copy into `ANTHROPIC_API_KEY`. No payment method needed.
 
 ## 4. Vercel (10 min)
 
