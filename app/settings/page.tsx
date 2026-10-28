@@ -9,17 +9,17 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const sql = await getSql();
   const today = sgtDate();
-  const [prefs, caps, sources, runs, fc, tokens, profile, paused] = await Promise.all([
+  const [prefs, caps, sources, runs, fc, queue, profile, paused] = await Promise.all([
     repo.listPreferences(sql),
     repo.employerCaps(sql),
     repo.listSources(sql, false),
     repo.recentRuns(sql),
     repo.firecrawlCredits(sql, today),
-    repo.tokensThisMonth(sql, today),
+    repo.queueSummary(sql),
     repo.getProfile(sql),
     repo.isPaused(sql),
   ]);
-  const feat = { Gmail: features.gmail(), 'Brave search': features.brave(), 'Hunter email finder': features.hunter(), Firecrawl: features.firecrawl(), 'Resume service': features.resume() };
+  const feat = { Gmail: features.gmail(), 'Brave search': features.brave(), 'Hunter email finder': features.hunter(), Firecrawl: features.firecrawl(), 'Claude scheduled task': features.routine() };
 
   return (
     <>
@@ -94,8 +94,9 @@ export default async function SettingsPage() {
 
       <h2>Spend</h2>
       <p>
-        Firecrawl: {fc.today} today, {fc.month} this month, {fc.total} total. Claude: {tokens.in.toLocaleString('en-SG')} input and{' '}
-        {tokens.out.toLocaleString('en-SG')} output tokens this month.
+        Firecrawl: {fc.today} today, {fc.month} this month, {fc.total} total. Claude queue:{' '}
+        {Object.entries(queue.open).map(([k, n]) => `${n} ${k}`).join(', ') || 'empty'}
+        {queue.stale ? `, ${queue.stale} waiting 10+ minutes` : ''}.
       </p>
 
       <h2>Sources</h2>

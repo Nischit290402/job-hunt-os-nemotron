@@ -33,8 +33,17 @@ export async function isSignedIn(): Promise<boolean> {
 
 /** Bearer check for the laptop agent. Constant-time compare. */
 export function agentAuthorized(req: Request): boolean {
+  return bearerIs(req, env.agentToken());
+}
+
+/** Bearer check for the Claude worker (scheduled task or laptop). */
+export function workerAuthorized(req: Request): boolean {
+  return bearerIs(req, env.workerToken());
+}
+
+function bearerIs(req: Request, token: string): boolean {
   const h = req.headers.get('authorization') ?? '';
-  const want = `Bearer ${env.agentToken()}`;
+  const want = `Bearer ${token}`;
   if (h.length !== want.length) return false;
   let diff = 0;
   for (let i = 0; i < h.length; i++) diff |= h.charCodeAt(i) ^ want.charCodeAt(i);

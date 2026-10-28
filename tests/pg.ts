@@ -21,7 +21,9 @@ const lit = (v: unknown): string => {
 };
 
 function psql(db: string, sqlText: string): string {
-  const r = spawnSync('psql', ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-d', db, '-c', sqlText], {
+  // SQL goes in on stdin: a resume PDF in base64 is too long for a command-line argument.
+  const r = spawnSync('psql', ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', '-'], {
+    input: sqlText,
     encoding: 'utf8',
     env: process.env,
     maxBuffer: 64 * 1024 * 1024,

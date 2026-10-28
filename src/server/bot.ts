@@ -8,7 +8,7 @@ import * as tg from './telegram';
 import { env } from './env';
 import { handleAction } from './actions';
 import { importConnections } from './contacts';
-import { callText } from './anthropic';
+import { fire, queueCoach } from './worker';
 import { sendBrief, briefData } from './steps';
 import { emit, EV } from '../inngest/client';
 import { verifyCallback } from '../core/signing';
@@ -176,12 +176,14 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
     case '/health': {
       const h = await repo.healthSummary(sql, today);
       const fc = await repo.firecrawlCredits(sql, today);
-      const tk = await repo.tokensThisMonth(sql, today);
+      const q = await repo.queueSummary(sql);
+      const lastFire = await repo.kvGet<{ at: string; ok: boolean; note: string }>(sql, 'worker_last_fire_result');
       const failing = (await repo.listSources(sql)).filter((s) => s.last_status && !String(s.last_status).startsWith('ok'));
       const master = await repo.kvGet<{ syncedAt: string; vaultModified: string }>(sql, 'master_resume');
       return void (await tg.send([
         `Sources ok today: ${h.sourcesOk}/${h.sourcesTotal}. Failed steps today: ${h.failedSteps}. Judged today: ${h.judgedToday}.`,
-        `Firecrawl: ${fc.today} today, ${fc.month} this month, ${fc.total} total. Claude tokens this month: ${tk.in.toLocaleString('en-SG')} in.`,
+        `Firecrawl: ${fc.today} today, ${fc.month} this month, ${fc.total} total. Claude queue: ${Object.entries(q.open).map(([k, n]) => `${n} ${k}`).join(', ') || 'empty'}${q.stale ? ` (${q.stale} waiting 10+ min)` : ''}.`,
+        lastFire ? `Last worker start: ${lastFire.at.slice(0, 16).replace('T', ' ')} UTC, ${escapeHtml(lastFire.note)}.` : 'Worker never started yet.',
         failing.length ? `Not ok: ${failing.map((s) => `${s.id} (${escapeHtml(s.last_status)})`).join(', ')}` : 'All sources ok.',
         master ? `Master resume: vault edit of ${master.vaultModified.slice(0, 10)}, synced ${master.syncedAt.slice(0, 10)}.` : 'Master resume: never synced. Start the laptop agent once.',
       ].join('\n')));
@@ -191,24 +193,9 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
   }
 }
 
-/** Read-only coach in the job-fetcher-coach voice. It sees a summary of the database and cannot change anything. */
+/** Free text goes to the coach. The worker answers in a minute or two; the coach reads the database and changes nothing. */
 async function coach(sql: Sql, question: string, today: string) {
-  const d = await briefData(sql, today);
-  const top = await sql`SELECT j.id, j.company, j.title, j.track, lj.score, lj.verdict, lj.notes, lj.flags, lj.deadline
-                        FROM jobs j JOIN latest_judgments lj ON lj.job_id = j.id
-                        WHERE j.closed_at IS NULL AND lj.verdict <> 'Skip' ORDER BY lj.score DESC LIMIT 15`;
-  const pipeline = await repo.appsInStates(sql, ['tailoring', 'finding_contact', 'awaiting_send', 'ask_sent', 'ready_to_fill', 'prefilled', 'applied', 'interview']);
-  const profile = await repo.getProfile(sql);
-  const system = [
-    'You are a senior hiring manager in AI and quant in Singapore who mentors graduate students. Blunt, specific, short. No cheerleading, no emojis, no em dashes.',
-    'Answer from the data below only. If the data does not cover the question, say so. You cannot change anything; suggest the command or button the user should use.',
-    'Use plain text that renders in Telegram HTML: no markdown headings or tables.',
-    `Candidate profile:\n${clip(profile.body, 3000)}`,
-    `Today list:\n${d.today.map((t) => `- [app ${t.applicationId}] ${t.company}, ${t.title}: ${t.score} ${t.verdict}. ${t.notes}`).join('\n') || '- empty'}`,
-    `In progress:\n${pipeline.map((p) => `- [app ${p.id}] ${p.company}, ${p.title}: ${p.state}`).join('\n') || '- none'}`,
-    `Top open jobs:\n${top.map((t) => `- [job ${t.id}] ${t.company}, ${t.title} (${t.track}): ${t.score} ${t.verdict}. ${t.notes}`).join('\n')}`,
-  ].join('\n\n');
-  const r = await callText({ model: env.writerModel(), system, user: question, maxTokens: 700, timeoutMs: 40_000 });
-  await repo.recordRun(sql, { step: 'coach', seconds: 0, ok: true, tokensIn: r.tokensIn, tokensOut: r.tokensOut });
-  await tg.send(escapeHtml(r.text).slice(0, 4000));
+  await queueCoach(sql, question, today);
+  const f = await fire(sql, 'coach question');
+  await tg.send(f.fired || f.note.startsWith('a run') ? 'Asked Claude. The answer arrives here in a minute or two.' : `Queued for Claude, but ${escapeHtml(f.note)}.`);
 }

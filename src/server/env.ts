@@ -22,11 +22,10 @@ export const env = {
   telegramChatId: () => req('TELEGRAM_CHAT_ID'),
   telegramWebhookSecret: () => req('TELEGRAM_WEBHOOK_SECRET'),
 
-  anthropicKey: () => req('ANTHROPIC_API_KEY'),
-  judgeModel: () => opt('JUDGE_MODEL', 'claude-haiku-4-5-20251001'),
-  writerModel: () => opt('WRITER_MODEL', 'claude-sonnet-5-5'),
-  monthlyTokenCap: () => num('MONTHLY_INPUT_TOKEN_CAP', 4_000_000),
-  judgeBatchSize: () => num('JUDGE_BATCH_SIZE', 5),
+  // Claude work runs in your Claude Code scheduled task, started by an HTTP "fire". No API key.
+  routineFireUrl: () => opt('ROUTINE_FIRE_URL'),
+  routineToken: () => opt('ROUTINE_TOKEN'),
+  workerToken: () => req('WORKER_TOKEN'),
   judgeMaxPerDay: () => num('JUDGE_MAX_PER_DAY', 40),
 
   firecrawlKey: () => opt('FIRECRAWL_API_KEY'),
@@ -42,9 +41,6 @@ export const env = {
   gmailRefreshToken: () => opt('GMAIL_REFRESH_TOKEN'),
   gmailFrom: () => opt('GMAIL_FROM'),
 
-  resumeServiceUrl: () => opt('RESUME_SERVICE_URL').replace(/\/+$/, ''),
-  resumeServiceToken: () => opt('RESUME_SERVICE_TOKEN'),
-
   agentToken: () => req('AGENT_TOKEN'),
 };
 
@@ -53,5 +49,5 @@ export const features = {
   brave: () => !!env.braveKey(),
   hunter: () => !!env.hunterKey(),
   firecrawl: () => !!env.firecrawlKey(),
-  resume: () => !!(env.resumeServiceUrl() && env.resumeServiceToken()),
+  routine: () => !!(env.routineFireUrl() && env.routineToken()),
 };

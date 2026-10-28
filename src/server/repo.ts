@@ -11,6 +11,7 @@ import { canonicalKey, hash12, normCompany, xkey } from '../core/keys';
 import { channelRank, type Channel } from '../core/filters';
 import { transition, type AppEvent, type AppState } from '../core/state';
 import { addDays, weekStart } from '../core/time';
+import { CLAIM_TTL_MIN, LAPTOP_AFTER_MIN, MAX_ATTEMPTS, TASK_KINDS, type TaskKind } from '../core/worker';
 
 export const USER = 1;
 const JD_OK_CHARS = 300;
@@ -747,4 +748,81 @@ export async function invalidateLoginCodes(sql: Sql) {
 export async function consumeLoginCode(sql: Sql, codeHash: string): Promise<boolean> {
   const r = await sql`UPDATE login_codes SET used = true WHERE code_hash = ${codeHash} AND NOT used AND expires_at > now() RETURNING code_hash`;
   return r.length === 1;
+}
+
+// ---------- Claude work queue (worker_tasks) ----------
+
+export interface ClaimedTask {
+  id: number;
+  kind: TaskKind;
+  ref: string;
+  payload: Record<string, unknown>;
+  attempts: number;
+}
+
+/** Queues one piece of work. Returns null when the same work is already open. */
+export async function enqueueTask(sql: Sql, kind: TaskKind, ref: string, payload: object): Promise<number | null> {
+  const r = await sql`INSERT INTO worker_tasks (kind, ref, payload) VALUES (${kind}, ${ref}, ${JSON.stringify(payload)}::jsonb)
+                      ON CONFLICT (kind, ref) WHERE status IN ('queued','claimed') DO NOTHING RETURNING id`;
+  return r.length ? Number(r[0].id) : null;
+}
+
+/** Hands out up to `limit` tasks, most urgent kind first. A claim older than CLAIM_TTL_MIN is handed out again. */
+export async function claimTasks(sql: Sql, runner: string, limit: number, kind?: TaskKind): Promise<ClaimedTask[]> {
+  const r = await sql`UPDATE worker_tasks SET status = 'claimed', claimed_by = ${runner}, claimed_at = now(), attempts = attempts + 1
+                      WHERE id IN (
+                        SELECT id FROM worker_tasks
+                        WHERE (status = 'queued' OR (status = 'claimed' AND claimed_at < now() - make_interval(mins => ${CLAIM_TTL_MIN})))
+                          AND attempts < ${MAX_ATTEMPTS} AND (${kind ?? null}::text IS NULL OR kind = ${kind ?? null})
+                        ORDER BY CASE kind WHEN 'coach' THEN 0 WHEN 'tailor' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END, id
+                        LIMIT ${limit} FOR UPDATE SKIP LOCKED)
+                      RETURNING id, kind, ref, payload, attempts`;
+  const rank = (k: string) => TASK_KINDS.indexOf(k as TaskKind); // UPDATE ... RETURNING does not keep the subquery's order
+  return r
+    .map((x) => ({ id: Number(x.id), kind: x.kind as TaskKind, ref: x.ref as string, payload: x.payload as Record<string, unknown>, attempts: Number(x.attempts) }))
+    .sort((a, b) => rank(a.kind) - rank(b.kind) || a.id - b.id);
+}
+
+/** Marks a claimed task done. Returns the task, or null when it was not claimed (late or duplicate result). */
+export async function completeTask(sql: Sql, id: number, result: object): Promise<ClaimedTask | null> {
+  const r = await sql`UPDATE worker_tasks SET status = 'done', result = ${JSON.stringify(result)}::jsonb, done_at = now(), error = NULL
+                      WHERE id = ${id} AND status = 'claimed' RETURNING id, kind, ref, payload, attempts`;
+  return r.length ? { id: Number(r[0].id), kind: r[0].kind as TaskKind, ref: r[0].ref as string, payload: r[0].payload as Record<string, unknown>, attempts: Number(r[0].attempts) } : null;
+}
+
+/** Puts a task back in the queue, or fails it for good after MAX_ATTEMPTS. Returns the new status. */
+export async function failTask(sql: Sql, id: number, error: string): Promise<{ status: string; kind: TaskKind; ref: string; payload: Record<string, unknown> } | null> {
+  const r = await sql`UPDATE worker_tasks SET status = CASE WHEN attempts >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
+                        error = ${error.slice(0, 1000)}, claimed_by = NULL, claimed_at = NULL,
+                        done_at = CASE WHEN attempts >= ${MAX_ATTEMPTS} THEN now() ELSE NULL END
+                      WHERE id = ${id} AND status = 'claimed' RETURNING status, kind, ref, payload`;
+  return r.length ? { status: r[0].status as string, kind: r[0].kind as TaskKind, ref: r[0].ref as string, payload: r[0].payload as Record<string, unknown> } : null;
+}
+
+/** Open work by kind, and how much of it nobody has picked up for `olderThanMin` minutes. */
+export async function queueSummary(sql: Sql, olderThanMin = LAPTOP_AFTER_MIN): Promise<{ open: Record<string, number>; stale: number }> {
+  const r = await sql`SELECT kind, count(*)::int AS n,
+                             count(*) FILTER (WHERE status = 'queued' AND created_at < now() - make_interval(mins => ${olderThanMin}))::int AS stale
+                      FROM worker_tasks WHERE status IN ('queued','claimed') GROUP BY kind`;
+  const open: Record<string, number> = {};
+  let stale = 0;
+  for (const x of r) {
+    open[x.kind as string] = Number(x.n);
+    stale += Number(x.stale);
+  }
+  return { open, stale };
+}
+
+/** Fails open tasks that have used every attempt, so their callers can move on. */
+export async function expireExhaustedTasks(sql: Sql) {
+  const r = await sql`UPDATE worker_tasks SET status = 'failed', done_at = now(), error = coalesce(error, 'abandoned after ' || attempts || ' attempts')
+                      WHERE status = 'claimed' AND attempts >= ${MAX_ATTEMPTS} AND claimed_at < now() - make_interval(mins => ${CLAIM_TTL_MIN})
+                      RETURNING id, kind, ref`;
+  return r.map((x) => ({ id: Number(x.id), kind: x.kind as TaskKind, ref: x.ref as string }));
+}
+
+export async function workerWeek(sql: Sql, today: string) {
+  const r = await sql`SELECT count(*) FILTER (WHERE status = 'done')::int AS done, count(*) FILTER (WHERE status = 'failed')::int AS failed
+                      FROM worker_tasks WHERE done_at >= ${addDays(today, -7)}::date`;
+  return { done: Number(r[0]?.done ?? 0), failed: Number(r[0]?.failed ?? 0) };
 }

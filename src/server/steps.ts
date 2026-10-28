@@ -6,20 +6,19 @@ import type { Sql } from './sql';
 import * as repo from './repo';
 import * as tg from './telegram';
 import { env, features } from './env';
-import { tailorResume } from './resume';
+import { fire, queueDraft, queueTailor } from './worker';
 import { findContact } from './contacts';
-import { draftFor, draftFollowUp } from './outreach';
+import { draftFollowUp } from './outreach';
 import { threadHasReply } from './gmail';
 import { pickToday } from '../core/ranker';
 import { addDays, daysBetween } from '../core/time';
 import { approvalCard, escapeHtml, readyCard, renderBrief, type ApprovalItem, type BriefData, type ReadyItem, type TodayItem } from '../core/brief';
 import { ConflictError } from './repo';
 import type { AppEvent, AppState } from '../core/state';
-import type { MasterCopy } from '../core/master';
 
 const TODAY_MAX = 3;
 
-async function tryEvent(sql: Sql, appId: number, event: AppEvent, expect: AppState[], extra: Parameters<typeof repo.applyEvent>[4] = {}) {
+export async function tryEvent(sql: Sql, appId: number, event: AppEvent, expect: AppState[], extra: Parameters<typeof repo.applyEvent>[4] = {}) {
   const app = await repo.getApplication(sql, appId);
   if (!app || !expect.includes(app.state)) return app?.state ?? null;
   try {
@@ -76,7 +75,7 @@ export async function briefData(sql: Sql, today: string): Promise<BriefData> {
   };
 }
 
-function toApproval(r: { id: number; company: string; title: string; job_id?: number }, d: Record<string, any>): ApprovalItem {
+export function toApproval(r: { id: number; company: string; title: string; job_id?: number }, d: Record<string, any>): ApprovalItem {
   return {
     applicationId: r.id, jobId: r.job_id, contactName: d.contact_name, contactHeadline: d.contact_headline, company: r.company, role: r.title,
     subject: d.subject, body: d.body, email: d.channel === 'email' ? d.email : null, linkedinUrl: d.linkedin_url, linkedinNote: d.linkedin_note,
@@ -92,6 +91,7 @@ export async function sendBrief(sql: Sql, today: string) {
 
 // ---------- per application ----------
 
+/** Queues tailoring for the worker. The flow then waits for worker/resume.done (or gives up after 3 hours). */
 export async function tailor(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'tailoring') return { skipped: true };
@@ -100,18 +100,18 @@ export async function tailor(sql: Sql, appId: number) {
     await tryEvent(sql, appId, 'resume.ready', ['tailoring']);
     return { ok: true, reused: true };
   }
-  const master = await repo.kvGet<MasterCopy>(sql, 'master_resume');
-  const r = await tailorResume({ applicationId: appId, company: app.company, role: app.title, jdText: app.jd_text }, master);
-  if ('error' in r) {
-    await tg.send(`Resume for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(r.error)}. Continuing with your base resume.`);
-    await tryEvent(sql, appId, 'resume.unavailable', ['tailoring'], { note: r.error });
-    return { ok: false, error: r.error };
-  }
-  await repo.saveResume(sql, appId, r);
-  const verdict = r.verifyPassed === false ? 'verify.py FAILED, check before using' : r.verifyPassed ? 'verify.py passed' : 'verify.py not run';
-  await tg.sendDocument(`${app.company.replace(/[^A-Za-z0-9]+/g, '_')}_resume.pdf`, Buffer.from(r.pdfBase64, 'base64'), `${app.company}, ${app.title}\n${r.summary}\n${verdict}`);
-  await tryEvent(sql, appId, 'resume.ready', ['tailoring']);
-  return { ok: true, verifyPassed: r.verifyPassed };
+  await queueTailor(sql, app);
+  const f = await fire(sql, `tailor resume for ${app.company}`);
+  await tg.send(`Tailoring your resume for <b>${escapeHtml(app.company)}</b>. It arrives here in a few minutes.${f.fired ? '' : ` (${escapeHtml(f.note)})`}`);
+  return { ok: true, queued: true };
+}
+
+/** Tailoring did not finish within the wait: continue with the base resume. */
+export async function tailorTimedOut(sql: Sql, appId: number) {
+  const app = await repo.getApplication(sql, appId);
+  if (!app || app.state !== 'tailoring') return { skipped: true };
+  await tg.send(`No tailored resume for <b>${escapeHtml(app.company)}</b> after 3 hours. Continuing with your base resume; it can still arrive later.`);
+  return tryEvent(sql, appId, 'resume.unavailable', ['tailoring'], { note: 'worker timeout' });
 }
 
 export async function findContactStep(sql: Sql, appId: number, today: string) {
@@ -133,21 +133,23 @@ export async function findContactStep(sql: Sql, appId: number, today: string) {
 export async function draftStep(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'awaiting_send' || !app.contact_id) return { skipped: true };
-  if (!(await repo.latestDraft(sql, appId))) {
-    try {
-      await draftFor(sql, app, app.contact_id);
-    } catch (e) {
-      // Without a draft the application must not sit in awaiting_send forever: offer Drop to continue.
-      await tg.send({
-        text: `Could not draft the referral ask for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(e instanceof Error ? e.message : String(e)).slice(0, 200)}. Tap Drop to continue without a referral.`,
-        keyboard: [[{ text: 'Drop and continue', callback_data: await tg.signer('dr', appId) }]],
-      });
-      return { ok: false };
-    }
+  const existing = await repo.latestDraft(sql, appId);
+  if (existing) {
+    await tg.send(await approvalCard(toApproval({ id: appId, company: app.company, title: app.title, job_id: app.job_id }, existing), tg.signer));
+    return { ok: true };
   }
-  const d = await repo.latestDraft(sql, appId);
-  await tg.send(await approvalCard(toApproval({ id: appId, company: app.company, title: app.title, job_id: app.job_id }, d!), tg.signer));
-  return { ok: true };
+  try {
+    await queueDraft(sql, app, app.contact_id); // the approval card is sent when the worker posts the draft
+    await fire(sql, `draft referral ask for ${app.company}`);
+  } catch (e) {
+    // Without a draft the application must not sit in awaiting_send forever: offer Drop to continue.
+    await tg.send({
+      text: `Could not draft the referral ask for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(e instanceof Error ? e.message : String(e)).slice(0, 200)}. Tap Drop to continue without a referral.`,
+      keyboard: [[{ text: 'Drop and continue', callback_data: await tg.signer('dr', appId) }]],
+    });
+    return { ok: false };
+  }
+  return { ok: true, queued: true };
 }
 
 /** No decision on a draft within 5 days: drop it and move on to applying. */
@@ -216,13 +218,13 @@ export async function weeklyReview(sql: Sql, today: string) {
   const skips = (await repo.preferenceBundle(sql)).skips.slice(-5);
   const sample = await repo.rejectSample(sql, today, 20);
   const pruned = await repo.pruneOldContacts(sql, today);
-  const tokens = await repo.tokensThisMonth(sql, today);
+  const work = await repo.workerWeek(sql, today);
   const connectionsOn = await repo.kvGet<string>(sql, 'connections_imported_on');
   const lines = [
     '<b>Weekly review</b>',
     `Listed ${f.listed}, judged ${f.judged}, shown in Today ${f.shown}, Apply taps ${f.apply_taps}, skips ${f.skips}.`,
     `Applied ${f.applied}, referral asks ${f.asks}, replies ${f.replies}, interviews in progress ${f.interviews}.`,
-    `Claude tokens this month: ${tokens.in.toLocaleString('en-SG')} in, ${tokens.out.toLocaleString('en-SG')} out.`,
+    `Claude worker this week: ${work.done} tasks done, ${work.failed} failed.`,
   ];
   if (skips.length) lines.push('', 'Recent skip reasons:', ...skips.map((s) => `- ${escapeHtml(s)}`));
   if (sample.length) lines.push('', 'Rejected by filters (check for good roles that got dropped):', ...sample.slice(0, 20).map((s) => `- ${escapeHtml(s.title)} (${s.reason})`));

@@ -7,9 +7,13 @@ export interface MasterCopy {
   tagged: string;
   vaultModified: string; // ISO time of the file on the laptop
   taggedModified: string;
+  files?: Record<string, string>; // resume kit: bases/Base_*.tex and tools/*.py from your Resume Optimizer
   sha: string;
   syncedAt: string;
 }
+
+export const KIT_PATH = /^(bases\/Base_[A-Za-z0-9]+\.tex|tools\/[a-z_]+\.py)$/;
+export const KIT_MAX_CHARS = 400_000;
 
 export const MASTER_MAX_CHARS = 200_000;
 const DRIFT_MS = 60 * 60 * 1000;
@@ -27,8 +31,14 @@ export function masterSyncNote(prev: MasterCopy | null, next: MasterCopy): strin
   return parts.join(' ');
 }
 
-export function validMaster(b: unknown): b is { vault: string; tagged: string; vaultModified: string; taggedModified: string } {
+export function validMaster(b: unknown): b is { vault: string; tagged: string; vaultModified: string; taggedModified: string; files?: Record<string, string> } {
   const o = b as Record<string, unknown>;
+  if (o && o.files !== undefined) {
+    if (!o.files || typeof o.files !== 'object' || Array.isArray(o.files)) return false;
+    const entries = Object.entries(o.files as Record<string, unknown>);
+    if (entries.some(([k, v]) => !KIT_PATH.test(k) || typeof v !== 'string')) return false;
+    if (entries.reduce((n, [, v]) => n + (v as string).length, 0) > KIT_MAX_CHARS) return false;
+  }
   return (
     !!o &&
     typeof o.vault === 'string' &&

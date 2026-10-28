@@ -7,7 +7,7 @@ import { getSql } from '../server/sql';
 import * as repo from '../server/repo';
 import * as steps from '../server/steps';
 import { collectSource, fillDescriptions } from '../server/collector';
-import { judgeBatch } from '../server/judge';
+import * as worker from '../server/worker';
 import { env } from '../server/env';
 import { sgtAt, sgtDate } from '../core/time';
 
@@ -24,12 +24,12 @@ export const dailyRun = inngest.createFunction(
     }
     await step.run('describe', async () => fillDescriptions(await getSql(), today, 40));
 
-    await step.sleepUntil('until-judge', sgtAt(today, '07:00'));
-    const batches = Math.ceil(env.judgeMaxPerDay() / env.judgeBatchSize());
-    for (let i = 0; i < batches; i++) {
-      const r = await step.run(`judge-${i}`, async () => judgeBatch(await getSql(), today, env.judgeBatchSize()));
-      if (!r.remaining || r.capped) break;
-    }
+    // Judging runs in your Claude Code scheduled task; the brief uses whatever it has scored by 07:45.
+    await step.run('queue-judging', async () => {
+      const sql = await getSql();
+      const q = await worker.queueJudging(sql, today, env.judgeMaxPerDay());
+      return { ...q, fire: q.queued ? (await worker.fire(sql, `judge ${q.queued} new jobs`)).note : 'nothing to judge' };
+    });
 
     await step.sleepUntil('until-brief', sgtAt(today, '07:45'));
     await step.run('build-today', async () => steps.buildToday(await getSql(), today));
@@ -50,6 +50,10 @@ export const applicationFlow = inngest.createFunction(
     const state = (name: string) => step.run(name, async () => steps.stateOf(await getSql(), id));
 
     await step.run('tailor', async () => steps.tailor(await getSql(), id));
+    if ((await state('state-after-queue-tailor')) === 'tailoring') {
+      await step.waitForEvent('wait-resume', { event: EV.resumeDone, timeout: '3h', if: sameApp });
+      await step.run('tailor-timeout', async () => steps.tailorTimedOut(await getSql(), id));
+    }
     await step.run('find-contact', async () => steps.findContactStep(await getSql(), id, today));
 
     if ((await state('state-after-contact')) === 'awaiting_send') {
@@ -86,15 +90,22 @@ export const weeklyReview = inngest.createFunction({ id: 'weekly-review' }, { cr
   step.run('review', async () => steps.weeklyReview(await getSql(), sgtDate()))
 );
 
-/** After a preference change: drop open judgments and score again in batches. */
+/** After a preference change: drop open judgments, queue them for the worker, rebuild Today once it is done. */
 export const rejudge = inngest.createFunction({ id: 'rejudge', concurrency: 1 }, { event: EV.rejudge }, async ({ step }) => {
   const today = await step.run('date', () => sgtDate());
-  await step.run('requeue', async () => repo.requeueForJudging(await getSql()));
-  for (let i = 0; i < 20; i++) {
-    const r = await step.run(`judge-${i}`, async () => judgeBatch(await getSql(), today, env.judgeBatchSize()));
-    if (!r.remaining || r.capped) break;
-  }
+  await step.run('requeue', async () => {
+    const sql = await getSql();
+    await repo.requeueForJudging(sql);
+    const q = await worker.queueJudging(sql, today, 200);
+    return { ...q, fire: (await worker.fire(sql, `re-judge ${q.queued} jobs after a preference change`)).note };
+  });
+  await step.waitForEvent('wait-idle', { event: EV.workerIdle, timeout: '2h' });
   return step.run('rebuild-today', async () => steps.buildToday(await getSql(), today));
 });
 
-export const functions = [dailyRun, applicationFlow, replyWatch, eveningNudge, weeklyReview, rejudge];
+/** Hourly: give up on tasks that used every attempt, and restart the worker if work has waited 30 minutes. */
+export const workerWatch = inngest.createFunction({ id: 'worker-watch' }, { cron: 'TZ=Asia/Singapore 17 * * * *' }, async ({ step }) =>
+  step.run('watch', async () => worker.watch(await getSql()))
+);
+
+export const functions = [dailyRun, applicationFlow, replyWatch, eveningNudge, weeklyReview, rejudge, workerWatch];

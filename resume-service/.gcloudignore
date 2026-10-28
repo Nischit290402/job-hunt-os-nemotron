@@ -1,3 +1,0 @@
-# gcloud uses .gitignore when this file is missing, which would leave assets/ out of the build.
-__pycache__/
-test_app.py

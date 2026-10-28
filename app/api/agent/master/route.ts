@@ -1,4 +1,4 @@
-/** Laptop agent pushes both master resume files when they change. Bearer AGENT_TOKEN. */
+/** Laptop agent pushes both master resume files, plus the bases and gate scripts, when any of them change. Bearer AGENT_TOKEN. */
 import { NextResponse } from 'next/server';
 import { getSql } from '@/src/server/sql';
 import * as repo from '@/src/server/repo';
@@ -26,7 +26,8 @@ export async function POST(req: Request) {
     tagged: b.tagged,
     vaultModified: b.vaultModified,
     taggedModified: b.taggedModified,
-    sha: await sha256Hex(`${b.vault}\u0000${b.tagged}`),
+    files: b.files ?? prev?.files ?? {},
+    sha: await sha256Hex(`${b.vault}\u0000${b.tagged}\u0000${JSON.stringify(b.files ?? prev?.files ?? {})}`),
     syncedAt: new Date().toISOString(),
   };
   const note = masterSyncNote(prev, next);

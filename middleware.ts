@@ -1,6 +1,6 @@
 /**
  * Every dashboard page and dashboard API needs a signed session cookie. Machine endpoints authenticate themselves:
- * /api/telegram (secret header), /api/inngest (Inngest signing key), /api/agent (bearer token), /api/auth (login flow).
+ * /api/telegram (secret header), /api/inngest (Inngest signing key), /api/agent and /api/worker (bearer tokens), /api/auth (login flow).
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { verifySession } from './src/core/signing';
@@ -16,5 +16,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api/telegram|api/inngest|api/agent|api/auth|login|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!api/telegram|api/inngest|api/agent|api/worker|api/auth|login|_next/static|_next/image|favicon.ico).*)'],
 };

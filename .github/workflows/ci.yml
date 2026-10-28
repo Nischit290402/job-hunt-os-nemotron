@@ -32,14 +32,6 @@ jobs:
         env:
           SIGNING_SECRET: ci-only-signing-secret-0123456789
 
-  resume-service:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends texlive-latex-base poppler-utils
-      - run: python3 -m unittest -v
-        working-directory: resume-service
-
   agent:
     runs-on: ubuntu-latest
     steps:
@@ -54,24 +46,17 @@ jobs:
       - run: npm test
         working-directory: agent
 
-  resume-image:
+  worker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the service image with stand-in assets
-        working-directory: resume-service
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check worker/cli.mjs
+      - name: Answers that break the schema are refused before sending
         run: |
-          mkdir -p assets/bases
-          printf '%s\n' '\documentclass{article}' '\usepackage{fontawesome}' '\begin{document}x \faExternalLink\end{document}' > assets/bases/Base_MLEngineer.tex
-          set +e
-          docker build --progress=plain -t resume-svc . > build.log 2>&1
-          code=$?
-          tail -40 build.log
-          if [ $code -ne 0 ]; then grep -vE 'sha256|extracting|DONE|CACHED|debconf|^\s*$' build.log | tail -10 | sed 's/::/: /g' | while IFS= read -r l; do echo "::error::$l"; done; exit 1; fi
-      - name: fontawesome is installed and a base compiles
-        run: |
-          set +e
-          out=$(docker run --rm resume-svc sh -c 'kpsewhich fontawesome.sty && cd /tmp && cp /app/assets/bases/Base_MLEngineer.tex t.tex && pdflatex -interaction=nonstopmode -halt-on-error t.tex | tail -25 && pdfinfo t.pdf | grep Pages' 2>&1)
-          code=$?
-          echo "$out"
-          if [ $code -ne 0 ]; then echo "::error title=resume image::$(echo "$out" | tail -20 | tr '\n' '|')"; exit 1; fi
+          mkdir -p .work
+          echo '{"id":1,"kind":"judge","instructions":"i","input":"x","schema":{"type":"object","required":["score"],"properties":{"score":{"type":"integer","maximum":100}}},"meta":{}}' > .work/1.json
+          echo '{"score": 140}' > bad.json
+          if JOBHUNT_URL=http://127.0.0.1:9 WORKER_TOKEN=t node worker/cli.mjs answer 1 bad.json; then echo "should have failed"; exit 1; fi

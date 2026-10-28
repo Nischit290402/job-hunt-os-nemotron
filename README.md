@@ -12,45 +12,43 @@ Design doc: [Job Hunt OS: System Design (HLD v1)](https://claude.ai/artifact/WGN
 | --- | --- |
 | 05:00 | Collect from every source (ATS APIs, MyCareersFuture, lists, Firecrawl pages), one step per source |
 | 05:00+ | Fetch missing job descriptions (MCF, SmartRecruiters and Workday APIs, then HTML, then Firecrawl for Singapore internships) |
-| 07:00 | Judge new jobs with Claude (score, gates, flags, deadline) |
+| 05:15+ | New jobs queued for judging; the app starts your Claude Code scheduled task, which scores them (score, gates, flags, deadline) |
 | 07:45 | Telegram brief: up to 3 jobs to decide (one per employer), drafts to approve, applications to submit, health line |
 | On your tap | Apply starts the application workflow; Skip asks for a reason; Snooze brings it back in 3 days |
 | 06:30 daily | Check Gmail threads for replies; draft one follow-up after 5 days |
 | 20:30 | Nudge only if a Today item has waited 2+ days |
 | Sunday 09:00 | Weekly review: funnel, skip reasons, 20 filter rejects to sanity-check, spend |
 
-After **Apply**: resume tailored (PDF in Telegram), then a contact search. If a contact is found, you get a draft to Send, Edit or Drop. After sending, it waits 3 days (or until a reply), then queues the application. The laptop agent fills the form and stops before Submit; you click Submit and tap **I submitted it**.
+After **Apply**: the scheduled task tailors your resume with your bases and gates (PDF in Telegram within minutes), then a contact search. If a contact is found, you get a draft to Send, Edit or Drop. After sending, it waits 3 days (or until a reply), then queues the application. The laptop agent fills the form and stops before Submit; you click Submit and tap **I submitted it**.
 
 ## What's in the repo
 
 ```
 src/core/        pure logic, no I/O: filters, keys, source parsers, ranker, state machine, judge prompt and bands,
                  contact parsing, outreach rules, brief layout, signing
-src/server/      adapters: Postgres repo, collector, judge runner, Telegram bot, Gmail, search, outreach, steps
-src/inngest/     durable workflows: daily run, per-application flow, reply watch, nudges, weekly review, re-judge
-app/             Next.js: 5 dashboard pages + API routes (Telegram webhook, Inngest, agent, auth, actions)
+src/server/      adapters: Postgres repo, collector, Claude work queue, Telegram bot, Gmail, search, outreach, steps
+src/inngest/     durable workflows: daily run, per-application flow, reply watch, nudges, weekly review, re-judge, worker watch
+app/             Next.js: 5 dashboard pages + API routes (Telegram webhook, Inngest, agent, worker, auth, actions)
 migrations/      Postgres schema (12 tables + kv, login codes, migrations)
 seed/            your sources, judge profile, preferences, caps and past applications
-resume-service/  Python (standard library only) LaTeX tailoring service with the one-page gate
+worker/          cli.mjs: the commands the Claude worker runs (claim, answer, kit, build, submit-resume)
+.claude/skills/  jobhunt-worker: how the worker judges, tailors (your /tailor-resume rules), drafts and coaches
 agent/           laptop apply-assist (Playwright, your own Chrome profile)
 tests/           unit tests + Postgres integration tests (real schema, real SQL)
 ```
 
+## How Claude runs
+
+There is no Claude API key. The app queues each piece of Claude work (judge a job, tailor a resume, draft an ask,
+answer a coach question) in Postgres and starts your Claude Code scheduled task with one HTTP call. That run loads the
+`jobhunt-worker` skill from this repo, claims tasks with `node worker/cli.mjs`, and posts results back. Usage counts
+against your Claude plan, not an API bill. If nothing picks the work up within 10 minutes, the laptop agent runs Claude
+Code locally with the same skill. An hourly watch restarts the task when work has waited 30 minutes, and gives up on a
+task after 3 attempts so the application moves on with your base resume.
+
 ## Setup
 
-Step-by-step instructions with every click and command: [docs/SETUP.md](docs/SETUP.md). Short version:
-
-
-1. **Accounts.** Neon (Postgres, free tier), Vercel (Hobby), Inngest (free tier, add the Vercel integration), Anthropic API key, Telegram bot from @BotFather. Optional: Brave Search API key (contact search), Hunter.io (verified emails), Google Cloud OAuth client (Gmail sending), Firecrawl key.
-2. **Environment.** Copy `.env.example` to `.env.local` and fill it in. Generate secrets with `openssl rand -hex 32`. Put the same values in Vercel's environment variables.
-3. **Database.** `npm install`, then `npm run db:migrate` and `npm run db:seed`.
-4. **Deploy.** Import the repo in Vercel and deploy. Connect the Inngest Vercel integration so `/api/inngest` is synced; the cron schedules appear in the Inngest dashboard.
-5. **Telegram.** Set `APP_URL` to your Vercel URL and run `npm run telegram:webhook`. Send `/help` to your bot.
-6. **Your network.** LinkedIn > Settings > Data privacy > Get a copy of your data > Connections. Send `Connections.csv` to the bot. The weekly review reminds you when it is 30 days old.
-7. **Gmail (optional).** Create an OAuth client of type Desktop app, add its id and secret to `.env.local`, run `npm run gmail:auth`, and save the printed `GMAIL_REFRESH_TOKEN` in Vercel. Scopes are `gmail.send` and `gmail.metadata` only.
-8. **Resume service (optional).** Copy your `master_resume.md`, `template.tex` (and `verify.py`, `rules.md`) into `resume-service/assets/`. Run it locally (`RESUME_SERVICE_TOKEN=... ANTHROPIC_API_KEY=... python3 resume-service/app.py`) or deploy the Dockerfile to Cloud Run or Fly.io. Set `RESUME_SERVICE_URL` and `RESUME_SERVICE_TOKEN` in Vercel. Without it, applications continue with your base resume.
-9. **Laptop agent (optional).** `cd agent && npm install && npx playwright install chromium`, copy `answers.example.json` to `answers.local.json` and fill it in, set `JOBHUNT_URL`, `AGENT_TOKEN`, `CHROME_PROFILE_DIR`, then `npm start`. Sign in to Workday or other ATS accounts once in that Chrome profile.
-10. **First run.** `npm run collect:once` runs one full cycle locally and prints what each source returned. Add `-- --brief` to also send the brief.
+Step-by-step instructions with every click and command: [docs/SETUP.md](docs/SETUP.md).
 
 ## Telegram commands
 
@@ -65,18 +63,19 @@ The dashboard sign-in sends a 6-digit code to your Telegram chat; there are no p
 - **Sending:** Gmail goes out only from a signed Send tap, and each draft is claimed before sending, so a double tap sends once. There is a cap of 5 new emails a day and 20 a week, one follow-up, and a do-not-contact list. Bounces add the address to that list automatically. `/pause` stops all outward actions.
 - **LinkedIn:** the system never opens LinkedIn. Contacts come from your own export and from search-engine results (titles and snippets). You send LinkedIn notes yourself. LinkedIn's User Agreement (section 8.2) bans bots, scraping and browser plug-ins, so none are used, including Claude in Chrome.
 - **Applications:** the agent fills forms in your own browser and never clicks Submit. It skips CAPTCHAs and leaves fields it cannot match.
-- **Untrusted text:** job descriptions and email replies are treated as data. The models that read them have no tools that act.
-- **Personal files:** your resume files, answer bank and browser profile are gitignored. The master resume is never stored in the database.
+- **Untrusted text:** job descriptions and email replies are treated as data. The worker skill forbids following instructions in them, and the worker can only call the app's queue endpoints; on the laptop it may run nothing but `worker/cli.mjs`.
+- **Personal files:** your resume files, answer bank and browser profile are gitignored. Your master resume, bases and gate scripts are synced into the database (key-value table) so the cloud worker can tailor; they never enter the repo.
 
 ## Costs
 
-Hosting, database, Inngest and Telegram fit their free tiers at one person's volume. Claude API usage is the main cost. Estimated at about 2.5 million input tokens a month: judge ~1.8M with the smaller model, resumes and drafts ~0.5M. The token figures are estimates; price them against Anthropic's pricing page. `MONTHLY_INPUT_TOKEN_CAP` stops the judge if usage runs ahead. Brave's monthly credit covers about 1,000 searches.
+Hosting, database, Inngest and Telegram fit their free tiers at one person's volume. Claude work runs on your Claude
+plan's usage: about 40 judged jobs a day in one morning run, plus a few minutes per tailored resume. Brave's monthly
+credit covers about 1,000 searches.
 
 ## Testing
 
 ```
-npm test                                  # 70 tests; Postgres tests need PGHOST/PGPORT/PGUSER (CI starts one)
-cd resume-service && python3 -m unittest  # LaTeX compile, one-page gate, verify.py, auth
+npm test                                  # 78 tests; Postgres tests need PGHOST/PGPORT/PGUSER (CI starts one)
 cd agent && npm test                      # form filling in headless Chromium
 ```
 

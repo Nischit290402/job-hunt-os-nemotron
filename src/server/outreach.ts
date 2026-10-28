@@ -1,37 +1,10 @@
 /** Drafting and sending referral asks. Sending runs only from a signed Send tap (actions.ts). */
 import type { Sql } from './sql';
 import * as repo from './repo';
-import { env, features } from './env';
-import { callTool } from './anthropic';
+import { features } from './env';
 import { sendEmail } from './gmail';
-import { buildDraftPrompt, checkSendAllowed, DRAFT_TOOL, followUpBody, normalizeDraft } from '../core/outreach';
-import { clip } from '../core/html';
+import { checkSendAllowed, followUpBody } from '../core/outreach';
 import { splitName } from '../core/contacts';
-
-export async function draftFor(sql: Sql, app: repo.AppRow, contactId: number): Promise<number> {
-  const contact = await repo.getContact(sql, contactId);
-  if (!contact) throw new Error(`contact ${contactId} not found`);
-  const profile = await repo.getProfile(sql);
-  const p = buildDraftPrompt({
-    candidateSummary: profile.outreach_summary || clip(profile.body, 2500),
-    contactName: contact.name,
-    contactHeadline: contact.headline,
-    contactKind: contact.kind,
-    relation: contact.relation,
-    company: app.company,
-    role: app.title,
-    applyUrl: app.url,
-    jdExcerpt: clip(app.jd_text || '', 3000),
-  });
-  const started = Date.now();
-  const r = await callTool({ model: env.writerModel(), system: p.system, user: p.user, tool: DRAFT_TOOL, maxTokens: 900 });
-  const d = normalizeDraft(r.input);
-  await repo.recordRun(sql, { step: 'draft', seconds: (Date.now() - started) / 1000, ok: true, tokensIn: r.tokensIn, tokensOut: r.tokensOut });
-  return repo.insertDraft(sql, {
-    appId: app.id, contactId, kind: 'ask', subject: d.subject, body: d.emailBody, linkedinNote: d.linkedinNote,
-    channel: contact.email && features.gmail() ? 'email' : 'linkedin',
-  });
-}
 
 export type SendOutcome = { ok: true; channel: 'email' | 'linkedin'; to: string } | { ok: false; reason: string };
 

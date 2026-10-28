@@ -20,6 +20,7 @@
 import { chromium, type BrowserContext } from 'playwright';
 import { readFileSync, writeFileSync, mkdtempSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fillForm, type Answers } from './fill';
@@ -30,7 +31,14 @@ const PROFILE = process.env.CHROME_PROFILE_DIR ?? join(process.cwd(), '.chrome-p
 const ANSWERS = process.env.ANSWERS_FILE ?? join(process.cwd(), 'answers.local.json');
 const POLL_MS = 60_000;
 const MASTER_VAULT = process.env.MASTER_VAULT ?? 'E:\\Projects\\vault\\AboutMe\\Master Resume MD.md';
-const MASTER_TAGGED = process.env.MASTER_TAGGED ?? 'E:\\Projects\\Resume Optimizer\\master_resume.md';
+const OPTIMIZER = process.env.RESUME_OPTIMIZER_DIR ?? 'E:\\Projects\\Resume Optimizer';
+const MASTER_TAGGED = process.env.MASTER_TAGGED ?? join(OPTIMIZER, 'master_resume.md');
+const KIT_FILES = [
+  'bases/Base_MLEngineer.tex', 'bases/Base_CVResearch.tex', 'bases/Base_BackendSystems.tex',
+  'tools/verify.py', 'tools/ats_check.py', 'tools/fact_check.py', 'tools/build_check.py',
+];
+const WORKER_TOKEN = process.env.WORKER_TOKEN ?? '';
+const REPO_DIR = join(process.cwd(), '..');
 const SYNC_ONLY = process.argv.includes('--sync-master');
 
 if (!BASE || !TOKEN) {
@@ -51,7 +59,12 @@ export async function syncMaster(log = false): Promise<void> {
     }
     const vault = readFileSync(MASTER_VAULT, 'utf8');
     const tagged = existsSync(MASTER_TAGGED) ? readFileSync(MASTER_TAGGED, 'utf8') : '';
-    const key = createHash('sha256').update(vault).update('\u0000').update(tagged).digest('hex');
+    const files: Record<string, string> = {};
+    for (const f of KIT_FILES) {
+      const p = join(OPTIMIZER, ...f.split('/'));
+      if (existsSync(p)) files[f] = readFileSync(p, 'utf8');
+    }
+    const key = createHash('sha256').update(vault).update('\u0000').update(tagged).update(JSON.stringify(files)).digest('hex');
     if (key === lastMasterKey) return;
     const r = await fetch(`${BASE}/api/agent/master`, {
       method: 'POST',
@@ -61,12 +74,46 @@ export async function syncMaster(log = false): Promise<void> {
         tagged,
         vaultModified: statSync(MASTER_VAULT).mtime.toISOString(),
         taggedModified: tagged ? statSync(MASTER_TAGGED).mtime.toISOString() : new Date(0).toISOString(),
+        files,
       }),
     });
     if (!r.ok) throw new Error(`master sync ${r.status}`);
     lastMasterKey = key;
     const d = (await r.json()) as { changed: boolean };
     if (log || d.changed) console.log(d.changed ? 'Master resume synced.' : 'Master resume already up to date.');
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : e);
+  }
+}
+
+let localWorker: ChildProcess | null = null;
+let claudeMissing = false;
+
+/** Runs Claude Code locally when work has waited 10+ minutes. One run at a time. Never throws. */
+export async function laptopFallback(): Promise<void> {
+  if (!WORKER_TOKEN || process.env.LAPTOP_WORKER === 'off' || localWorker || claudeMissing) return;
+  try {
+    const r = await fetch(`${BASE}/api/worker/status`, { headers: { authorization: `Bearer ${WORKER_TOKEN}` } });
+    if (!r.ok) return;
+    const s = (await r.json()) as { stale: number; paused: boolean };
+    if (!s.stale || s.paused) return;
+    console.log(`${s.stale} Claude task(s) waited 10+ minutes; running Claude Code on this laptop.`);
+    const prompt = 'Use the jobhunt-worker skill to process the Job Hunt OS queue until it is empty.';
+    const allowed = ['Bash(node worker/cli.mjs:*)', 'Read', 'Edit(.work/**)', 'Write(.work/**)', 'Skill'];
+    const cmd = process.env.CLAUDE_CMD ?? 'claude';
+    localWorker = spawn(cmd, ['-p', JSON.stringify(prompt), '--allowedTools', ...allowed.map((a) => JSON.stringify(a))], {
+      cwd: REPO_DIR,
+      shell: true, // claude is a .cmd shim on Windows
+      env: { ...process.env, JOBHUNT_URL: BASE, WORKER_TOKEN, WORKER_RUNNER: 'laptop' },
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    localWorker.on('exit', (code) => {
+      if (code === 9009 || code === 127) {
+        claudeMissing = true;
+        console.error('Claude Code is not installed here (npm install -g @anthropic-ai/claude-code, then run "claude" once to sign in).');
+      }
+      localWorker = null;
+    });
   } catch (e) {
     console.error(e instanceof Error ? e.message : e);
   }
@@ -106,6 +153,7 @@ async function main() {
   console.log(`Agent running against ${BASE}. Leave this window open; close it to stop.`);
   for (;;) {
     await syncMaster();
+    await laptopFallback();
     try {
       const { task, paused } = await nextTask();
       if (paused) console.log('Paused from Telegram; waiting.');

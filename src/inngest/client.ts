@@ -9,6 +9,8 @@ export const EV = {
   replied: 'app/outreach.replied',
   submitted: 'app/submitted',
   rejudge: 'jobs/rejudge',
+  resumeDone: 'worker/resume.done', // tailored resume saved, or tailoring gave up
+  workerIdle: 'worker/idle', // a worker run emptied the queue
 } as const;
 
 export async function emit(name: string, data: Record<string, unknown>) {

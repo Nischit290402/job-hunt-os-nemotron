@@ -1,9 +1,9 @@
-/** Runs one collect + describe + judge + Today cycle locally, without Inngest. Usage: npm run collect:once [-- --no-judge] [-- --brief] */
+/** Runs one collect + describe cycle locally, queues judging for the worker, then builds Today. Usage: npm run collect:once [-- --no-judge] [-- --brief] */
 import './_env';
 import { getSql } from '../src/server/sql';
 import * as repo from '../src/server/repo';
 import { collectSource, fillDescriptions } from '../src/server/collector';
-import { judgeBatch } from '../src/server/judge';
+import { fire, queueJudging } from '../src/server/worker';
 import { buildToday, sendBrief } from '../src/server/steps';
 import { sgtDate } from '../src/core/time';
 
@@ -15,11 +15,9 @@ for (const s of await repo.listSources(sql)) {
 }
 console.log('descriptions', await fillDescriptions(sql, today, 40));
 if (!process.argv.includes('--no-judge')) {
-  for (let i = 0; i < 8; i++) {
-    const r = await judgeBatch(sql, today, 5);
-    console.log('judge', r);
-    if (!r.remaining || r.capped) break;
-  }
+  const q = await queueJudging(sql, today, 40);
+  console.log('judging queued', q, q.queued ? await fire(sql, `judge ${q.queued} new jobs`) : '');
+  console.log('Today fills once the worker has judged them: run this again with --no-judge in a few minutes.');
 }
 console.log('today', await buildToday(sql, today));
 if (process.argv.includes('--brief')) console.log('brief', await sendBrief(sql, today));
