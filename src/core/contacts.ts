@@ -87,8 +87,26 @@ const ROLE_QUERIES: Record<string, string[]> = {
   ml: ['machine learning engineer', 'data scientist'],
 };
 
+/**
+ * The name people write on their profiles: "MOTIONAL SINGAPORE PTE. LIMITED" becomes "Motional". Registry names from
+ * MyCareersFuture carry legal suffixes and the country, which an exact-phrase search never matches.
+ */
+export function searchName(company: string): string {
+  let n = String(company || '')
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\b(pte\.?|ltd\.?|limited|inc\.?|llc|corp\.?|corporation|co\.|plc|gmbh|holdings?)(?=\s|,|$)/gi, ' ')
+    .replace(/[,.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = n.split(' ');
+  if (parts.length > 1 && /^(singapore|sg|asia|apac|asia pacific)$/i.test(parts[parts.length - 1])) n = parts.slice(0, -1).join(' ');
+  if (n === n.toUpperCase() && n.length > 4) n = n.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return n || String(company || '').trim();
+}
+
 /** At most `max` queries: engineer queries for the job family first, then one recruiter query. */
-export function xrayQueries(company: string, family: string, location = 'Singapore', max = 5): { q: string; kind: ContactKind }[] {
+export function xrayQueries(rawCompany: string, family: string, location = 'Singapore', max = 5): { q: string; kind: ContactKind }[] {
+  const company = searchName(rawCompany);
   const roles = ROLE_QUERIES[family] ?? ROLE_QUERIES.ml;
   const out: { q: string; kind: ContactKind }[] = roles.map((r) => ({ q: `site:linkedin.com/in "${company}" "${r}" ${location}`, kind: 'engineer' }));
   out.push({ q: `site:linkedin.com/in "${company}" ("talent acquisition" OR "university recruiter" OR "campus recruiter") ${location}`, kind: 'recruiter' });

@@ -216,3 +216,14 @@ test('xkey: Intern and Internship titles at the same company match across boards
   const b = xkey({ company: 'Motional', title: 'Machine Learning Internship, Behaviors Research', location: 'Singapore' });
   assert.equal(a, b);
 });
+
+test('searchName: registry names become the name people put on their profiles', async () => {
+  const { searchName, xrayQueries } = await import('../src/core/contacts');
+  assert.equal(searchName('MOTIONAL SINGAPORE PTE. LIMITED'), 'Motional');
+  assert.equal(searchName('CYNAPSE PTE. LTD.'), 'Cynapse');
+  assert.equal(searchName('Hudson River Trading'), 'Hudson River Trading');
+  assert.equal(searchName('Grab Holdings Inc.'), 'Grab');
+  assert.equal(searchName('DBS Bank Ltd.'), 'DBS Bank');
+  assert.equal(searchName('IMC'), 'IMC');
+  assert.match(xrayQueries('MOTIONAL SINGAPORE PTE. LIMITED', 'ml')[0].q, /"Motional" "machine learning engineer"/);
+});
