@@ -8,7 +8,7 @@ import * as tg from './telegram';
 import { env } from './env';
 import { handleAction } from './actions';
 import { importConnections } from './contacts';
-import { fire, queueCoach } from './worker';
+import { fire, queueCoach, queueTailor } from './worker';
 import { sendBrief, briefData } from './steps';
 import { emit, EV } from '../inngest/client';
 import { verifyCallback } from '../core/signing';
@@ -30,6 +30,7 @@ const HELP = [
   '/pause and /resume: stop or restart all outward actions',
   '/unlock: re-enable dashboard sign-in after too many wrong codes',
   '/retry &lt;app id&gt;: restart an application workflow that stopped',
+  '/tailor &lt;app id&gt; [what to change]: make a new resume version, e.g. /tailor 3 lead with statistics',
   '/health: sources, runs and spend',
   'Send Connections.csv as a file to refresh your network.',
   'Any other message is a question for the coach.',
@@ -156,6 +157,16 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const ev = `outcome.${m[2].toLowerCase()}` as 'outcome.interview' | 'outcome.offer' | 'outcome.rejected';
       const s = await repo.applyEvent(sql, Number(m[1]), ev, 'you').catch((e: Error) => e.message);
       return void (await tg.send(`Application ${m[1]}: ${escapeHtml(String(s))}`));
+    }
+    case '/tailor': {
+      const m = arg.match(/^(\d+)\s*(.*)$/s);
+      if (!m) return void (await tg.send('Usage: /tailor &lt;app id&gt; [what to change]'));
+      const app = await repo.getApplication(sql, Number(m[1]));
+      if (!app) return void (await tg.send(`No application ${m[1]}.`));
+      const queued = await queueTailor(sql, app, true, m[2].trim());
+      if (!queued) return void (await tg.send(`A resume for ${escapeHtml(app.company)} is already being made.`));
+      const f = await fire(sql, `re-tailor resume for ${app.company}`);
+      return void (await tg.send(`Making a new resume version for <b>${escapeHtml(app.company)}</b>. It arrives here in a few minutes.${f.fired || f.note.startsWith('a run') ? '' : ` (${escapeHtml(f.note)})`}`));
     }
     case '/retry': {
       if (!/^\d+$/.test(arg)) return void (await tg.send('Usage: /retry &lt;app id&gt;'));
