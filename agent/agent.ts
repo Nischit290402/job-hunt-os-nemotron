@@ -152,6 +152,7 @@ async function downloadResume(url: string): Promise<string> {
 async function main() {
   const ctx: BrowserContext = await chromium.launchPersistentContext(PROFILE, {
     headless: false,
+    chromiumSandbox: true, // Playwright turns the sandbox off by default; your real Chrome should keep it
     channel: process.env.AGENT_BROWSER === 'chromium' ? undefined : 'chrome',
     viewport: null,
   });
