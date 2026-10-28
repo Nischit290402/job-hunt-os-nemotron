@@ -31,7 +31,7 @@ const HELP = [
   '/unlock: re-enable dashboard sign-in after too many wrong codes',
   '/retry &lt;app id&gt;: restart an application workflow that stopped',
   '/tailor &lt;app id&gt; [what to change]: make a new resume version, e.g. /tailor 3 lead with statistics',
-  '/health: sources, runs and spend',
+  '/health: sources, Claude queue, last worker start, master resume sync',
   'Send Connections.csv as a file to refresh your network.',
   'Any other message is a question for the coach.',
 ].join('\n');
