@@ -260,6 +260,12 @@ switch (cmd) {
     if (t.kind !== 'tailor') die(`Task ${id} is ${t.kind}, not tailor.`);
     const tex = resolve(file || '');
     if (!existsSync(tex) || !base) die('submit-resume <id> <file.tex> <base> <summary...>');
+    const norm = (x) => x.replace(/%.*$/gm, '').replace(/\s+/g, ' ').trim();
+    const mine = norm(readFileSync(tex, 'utf8'));
+    for (const n of ['Base_MLEngineer.tex', 'Base_CVResearch.tex', 'Base_BackendSystems.tex']) {
+      const p = join(KIT, 'bases', n);
+      if (existsSync(p) && norm(readFileSync(p, 'utf8')) === mine) die(`Not submitted: this is ${n} unchanged. Tailor it to the posting (skill step 6), then submit.`);
+    }
     const b = build(tex);
     if (!b.ok) die(`Not submitted: ${b.output}`);
     const r = await api('POST', '/api/worker/result', {

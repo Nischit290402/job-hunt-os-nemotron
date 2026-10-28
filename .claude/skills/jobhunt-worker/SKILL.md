@@ -75,8 +75,14 @@ A resume is final only when `build` prints READY TO SEND. The master resume is t
    - SWE, backend, platform, data, ML infrastructure: `Base_BackendSystems`.
 6. Copy that base to `.work/<id>.tex` and replace content only. Keep the preamble, commands, section names and order,
    and the header exactly (GitHub display `github.com/Nischit` linked to `github.com/Nischit290402`, email
-   `nischitv29@gmail.com`). Swap bullets and project blocks toward the must-haves using master facts. Change as little
-   as the job requires.
+   `nischitv29@gmail.com`).
+   You must tailor; a base that already passes the gates is a starting point, not an answer. `submit-resume` refuses a
+   file identical to a base. At minimum:
+   - Reorder the skills line so the posting's must-haves the master supports come first, in the posting's words.
+   - Rewrite at least 3 bullets so they lead with what this posting asks for (its terms, where the master supports
+     them), and reorder bullets within each role so the most relevant comes first.
+   - Swap in the master project or experience block that best answers the top must-have when a base block answers
+     none of them.
 7. Rules, all from the master and the tailor-resume skill:
    - Every fact, number, skill, title and date comes from the master. Never invent one. Obey every "Cannot Claim",
      "Do not claim" and "Wording rule". Blocks tagged [MASTER ONLY] stay off the page.
@@ -90,7 +96,7 @@ A resume is final only when `build` prints READY TO SEND. The master resume is t
 8. `node worker/cli.mjs build .work/<id>.tex`. Fix every FAIL by rewording, reselecting master blocks or cutting, and
    build again, up to 3 rounds. Never fix a FAIL by adding facts. If a keyword cannot be covered truthfully, leave it out
    and name it as a gap in the summary. If a gate script itself looks wrong, say so in the summary; do not edit it.
-9. `node worker/cli.mjs submit-resume <id> .work/<id>.tex <Base_Name> <one-line summary>`. The summary says what changed,
-   the match percentage and any real gaps, for example:
-   `Base_MLEngineer: led with ranking and PyTorch bullets, moved WACV up; match 80%; gap: Spark`.
+9. `node worker/cli.mjs submit-resume <id> .work/<id>.tex <Base_Name> <one-line summary>`. The summary names the concrete
+   changes, the match percentage and any real gaps, for example:
+   `led with time-series and statistics bullets, skills reordered (Python, PyTorch, statistics first), swapped TrackX for OmniRec; match 65%; gaps: C++ at work, finance data`.
    Submit after 3 rounds even if FAILs remain; the app marks it "check before using".

@@ -8,11 +8,18 @@ import { env } from './env';
 import { httpGet } from './http';
 import type { SearchResult } from '../core/contacts';
 
+const BRAVE_GAP_MS = 1100; // the free plan allows 1 request a second
+let lastBraveAt = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Brave has no Singapore country filter (country=sg is rejected), so the location lives in the query text. */
 export async function braveSearch(q: string, count = 10): Promise<SearchResult[]> {
-  const r = await httpGet(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${count}&country=sg&safesearch=moderate`, {
-    accept: 'application/json',
-    'x-subscription-token': env.braveKey(),
-  });
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${count}&safesearch=moderate`;
+  const headers = { accept: 'application/json', 'x-subscription-token': env.braveKey() };
+  const wait = lastBraveAt + BRAVE_GAP_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastBraveAt = Date.now();
+  const r = await httpGet(url, headers); // httpGet retries a 429 once after 1.5 s
   if (r.status !== 200) throw new Error(`Brave search ${r.status}: ${r.error ?? r.text.slice(0, 120)}`);
   const data = JSON.parse(r.text);
   return (data?.web?.results ?? []).map((x: any) => ({ title: String(x.title ?? '').replace(/<\/?strong>/g, ''), url: x.url, description: String(x.description ?? '').replace(/<\/?strong>/g, '') }));
