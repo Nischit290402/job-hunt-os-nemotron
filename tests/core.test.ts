@@ -210,3 +210,9 @@ test('master sync: rejects empty or oversized uploads', () => {
   assert.equal(validMaster({ ...ok, vaultModified: 'not a date' }), false);
   assert.equal(validMaster(null), false);
 });
+
+test('xkey: Intern and Internship titles at the same company match across boards', () => {
+  const a = xkey({ company: 'MOTIONAL SINGAPORE PTE. LIMITED', title: 'Machine Learning Intern, Behaviors Research', location: 'Singapore' });
+  const b = xkey({ company: 'Motional', title: 'Machine Learning Internship, Behaviors Research', location: 'Singapore' });
+  assert.equal(a, b);
+});

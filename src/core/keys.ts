@@ -59,6 +59,7 @@ export function normTitle(title: string): string {
     .toLowerCase()
     .replace(/\([^)]*\)/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\binternship\b/g, 'intern') // "ML Internship, X" and "ML Intern, X" are the same posting on two boards
     .trim();
 }
 
