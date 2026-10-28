@@ -63,7 +63,11 @@ jobs:
         run: |
           mkdir -p assets/bases
           printf '%s\n' '\documentclass{article}' '\usepackage{fontawesome}' '\begin{document}x \faExternalLink\end{document}' > assets/bases/Base_MLEngineer.tex
-          docker build -t resume-svc .
+          set +e
+          docker build --progress=plain -t resume-svc . > build.log 2>&1
+          code=$?
+          tail -40 build.log
+          if [ $code -ne 0 ]; then echo "::error title=docker build::$(grep -vE 'sha256|extracting|^#[0-9]+ (DONE|CACHED)' build.log | tail -25 | tr '\n' '|')"; exit 1; fi
       - name: fontawesome is installed and a base compiles
         run: |
           set +e
