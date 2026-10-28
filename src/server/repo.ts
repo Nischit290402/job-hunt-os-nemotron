@@ -199,6 +199,13 @@ export async function jobsToJudge(sql: Sql, limit: number): Promise<JobToJudge[]
     LIMIT ${limit}`;
 }
 
+export async function jobToJudgeById(sql: Sql, jobId: number): Promise<JobToJudge | null> {
+  const r = await sql<JobToJudge>`
+    SELECT j.id, j.company, c.key AS company_key, j.title, j.location, j.track, j.start_window, j.hours_flag, j.elig_flag, j.jd_text, j.jd_hash
+    FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.id = ${jobId}`;
+  return r[0] ?? null;
+}
+
 /** Forces a re-judge of open, not-yet-decided jobs (used after preferences change). */
 export async function requeueForJudging(sql: Sql) {
   await sql`DELETE FROM judgments WHERE job_id IN (
@@ -441,6 +448,10 @@ export async function contactsAtCompany(sql: Sql, companyId: number): Promise<Co
              FROM contacts WHERE user_id = ${USER} AND company_id = ${companyId} AND NOT do_not_contact
              ORDER BY CASE relation WHEN 'connection' THEN 0 WHEN 'alumni' THEN 1 ELSE 2 END,
                       CASE kind WHEN 'engineer' THEN 0 ELSE 1 END, found_on DESC`;
+}
+
+export async function setContactEmail(sql: Sql, id: number, email: string, source: string, confidence: string) {
+  await sql`UPDATE contacts SET email = ${email}, email_source = ${source}, email_confidence = ${confidence} WHERE id = ${id} AND email IS NULL`;
 }
 
 export async function getContact(sql: Sql, id: number) {

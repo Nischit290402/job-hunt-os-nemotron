@@ -5,7 +5,7 @@
 import { cleanTitle } from './keys';
 import type { TermLists } from './terms';
 
-export type Channel = 'ATS' | 'CRAWL' | 'LIST' | 'SGP' | 'AGG';
+export type Channel = 'ATS' | 'CRAWL' | 'LIST' | 'SGP' | 'AGG' | 'LEAD';
 export type Track = 'sg' | 'remote' | 'ft' | 'archive';
 
 export interface RawJob {
@@ -72,7 +72,7 @@ export function isPhdOnly(title: string): boolean {
   return phd && !ms;
 }
 
-const CHANNEL_RANK: Record<Channel, number> = { ATS: 1, CRAWL: 2, LIST: 3, SGP: 4, AGG: 5 };
+const CHANNEL_RANK: Record<Channel, number> = { ATS: 1, CRAWL: 2, LIST: 3, SGP: 4, AGG: 5, LEAD: 6 };
 /** Lower is more trusted. When two channels report the same job, the more trusted apply link wins. */
 export const channelRank = (c: Channel) => CHANNEL_RANK[c] ?? 9;
 

@@ -77,7 +77,7 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
       case 'edit': {
         const draft = await repo.latestDraft(sql, appId);
         if (!draft) return { text: 'No draft to edit.' };
-        const promptId = await tg.askForReply(`Reply to this message with the new email text for ${app.company}. Your text replaces the draft body.`);
+        const promptId = await tg.askForReply(`Reply to this message with the new email text for ${escapeHtml(app.company)}. Your text replaces the draft body.`);
         await repo.kvSet(sql, 'edit_pending', { promptId, messageId: draft.id, appId });
         return { text: 'Waiting for your new text.', keepButtons: true };
       }

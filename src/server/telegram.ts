@@ -40,8 +40,8 @@ export async function answerCallback(id: string, text?: string) {
 }
 
 /** Asks for a reply, used by Edit draft: the next message that replies to this one becomes the new body. */
-export async function askForReply(text: string): Promise<number> {
-  const r = await call('sendMessage', { chat_id: env.telegramChatId(), text, reply_markup: { force_reply: true, input_field_placeholder: 'New email text' } });
+export async function askForReply(text: string, placeholder = 'New email text'): Promise<number> {
+  const r = await call('sendMessage', { chat_id: env.telegramChatId(), text, parse_mode: 'HTML', reply_markup: { force_reply: true, input_field_placeholder: placeholder } });
   return r.message_id as number;
 }
 

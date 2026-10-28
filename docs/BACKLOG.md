@@ -2,7 +2,7 @@
 
 Features agreed but not started. Build them after the core loop is complete.
 
-## LinkedIn link intake (requested 2026-10-29)
+## LinkedIn link intake (requested 2026-10-29): built as /lead
 
 You share a LinkedIn URL in Telegram while scrolling: a job posting, or someone's post that has an apply link or says
 "DM me". The app then:

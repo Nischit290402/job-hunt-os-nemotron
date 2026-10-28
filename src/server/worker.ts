@@ -10,7 +10,7 @@ import { httpPost } from './http';
 import { tryEvent, toApproval, briefData } from './steps';
 import { buildSystemPrompt, buildUserMessage, JUDGE_TOOL, normalizeJudgment, RUBRIC_VERSION, type JudgeInput } from '../core/judge';
 import { buildDraftPrompt, DRAFT_TOOL, normalizeDraft } from '../core/outreach';
-import { approvalCard, escapeHtml } from '../core/brief';
+import { approvalCard, escapeHtml, todayCard } from '../core/brief';
 import { clip } from '../core/html';
 import { fireText, resultError, shouldFire, type TailorResultIn, type TaskKind } from '../core/worker';
 
@@ -54,24 +54,30 @@ export async function fire(sql: Sql, reason: string, force = false): Promise<{ f
 export async function queueJudging(sql: Sql, today: string, max: number): Promise<{ queued: number }> {
   const jobs = await repo.jobsToJudge(sql, max);
   if (!jobs.length) return { queued: 0 };
+  const system = await judgeSystemPrompt(sql);
+  let queued = 0;
+  for (const j of jobs) if (await queueJudgeJob(sql, j, today, system)) queued++;
+  return { queued };
+}
+
+async function judgeSystemPrompt(sql: Sql) {
   const profile = await repo.getProfile(sql);
   const prefs = await repo.preferenceBundle(sql);
-  const system = buildSystemPrompt(profile.body, prefs.rules, prefs.skips);
-  let queued = 0;
-  for (const j of jobs) {
-    const input: JudgeInput = {
-      jobId: j.id, company: j.company, title: j.title, location: j.location, track: j.track, startWindow: j.start_window,
-      hoursFlag: j.hours_flag, eligFlag: j.elig_flag, knownContacts: await repo.connectionNamesByCompany(sql, j.company_key), jdText: j.jd_text,
-    };
-    const id = await repo.enqueueTask(sql, 'judge', `job:${j.id}:${j.jd_hash}`, {
-      instructions: system,
-      input: buildUserMessage(input),
-      schema: JUDGE_TOOL.input_schema,
-      meta: { jobId: j.id, jdHash: j.jd_hash, today, judgeInput: { ...input, jdText: (j.jd_text || '').trim().slice(0, 300) } },
-    });
-    if (id) queued++;
-  }
-  return { queued };
+  return buildSystemPrompt(profile.body, prefs.rules, prefs.skips);
+}
+
+/** `leadAppId`: a lead you added by hand; its card goes to Telegram as soon as it is judged, whatever the score. */
+export async function queueJudgeJob(sql: Sql, j: repo.JobToJudge, today: string, system?: string, leadAppId?: number) {
+  const input: JudgeInput = {
+    jobId: j.id, company: j.company, title: j.title, location: j.location, track: j.track, startWindow: j.start_window,
+    hoursFlag: j.hours_flag, eligFlag: j.elig_flag, knownContacts: await repo.connectionNamesByCompany(sql, j.company_key), jdText: j.jd_text,
+  };
+  return repo.enqueueTask(sql, 'judge', `job:${j.id}:${j.jd_hash}`, {
+    instructions: system ?? (await judgeSystemPrompt(sql)),
+    input: buildUserMessage(input),
+    schema: JUDGE_TOOL.input_schema,
+    meta: { jobId: j.id, jdHash: j.jd_hash, today, judgeInput: { ...input, jdText: (j.jd_text || '').trim().slice(0, 300) }, leadAppId: leadAppId ?? null },
+  });
 }
 
 const TAILOR_INSTRUCTIONS = `Tailor Nischit Hosamani's one-page resume to this job with the jobhunt-worker skill's tailoring procedure:
@@ -94,7 +100,9 @@ export async function queueDraft(sql: Sql, app: repo.AppRow, contactId: number) 
   const contact = await repo.getContact(sql, contactId);
   if (!contact) throw new Error(`contact ${contactId} not found`);
   const profile = await repo.getProfile(sql);
+  const fromLead = (await repo.kvGet<number>(sql, `lead_contact:${app.id}`)) === contactId;
   const p = buildDraftPrompt({
+    hook: fromLead ? `${contact.name} posted about this opening on LinkedIn (the candidate saw the post). Mention that you saw their post; do not quote it.` : undefined,
     candidateSummary: profile.outreach_summary || clip(profile.body, 2500),
     contactName: contact.name,
     contactHeadline: contact.headline,
@@ -164,6 +172,7 @@ export async function applyResult(sql: Sql, id: number, result: unknown): Promis
   switch (kind) {
     case 'judge':
       await repo.saveJudgment(sql, meta.jobId, meta.jdHash, judgment!, WORKER_MODEL, RUBRIC_VERSION);
+      if (meta.leadAppId) await sendLeadCard(sql, Number(meta.leadAppId), meta.today);
       out = { applied: true, note: `judged job ${meta.jobId}: ${judgment!.score} ${judgment!.verdict}` };
       break;
     case 'coach':
@@ -179,6 +188,15 @@ export async function applyResult(sql: Sql, id: number, result: unknown): Promis
   }
   await repo.completeTask(sql, id, kind === 'tailor' ? { ...r, pdfBase64: `${String(r.pdfBase64).length} chars` } : r);
   return out;
+}
+
+/** The card for a lead you added: score, notes and Apply / Skip / Snooze, sent the moment it is judged. */
+export async function sendLeadCard(sql: Sql, appId: number, today: string) {
+  const d = await briefData(sql, today);
+  const it = d.today.find((t) => t.applicationId === appId);
+  if (!it) return;
+  const card = await todayCard(it, 1, tg.signer, env.appUrl());
+  await tg.send({ ...card, text: card.text.replace(/^<b>1\. /, '<b>Your lead: ') });
 }
 
 async function applyDraft(sql: Sql, meta: Record<string, any>, d: ReturnType<typeof normalizeDraft>) {

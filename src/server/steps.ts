@@ -7,6 +7,9 @@ import * as repo from './repo';
 import * as tg from './telegram';
 import { env, features } from './env';
 import { fire, queueDraft, queueTailor } from './worker';
+import { leadContactKey } from './lead';
+import { companyDomain, findEmail } from './search';
+import { splitName } from '../core/contacts';
 import { findContact } from './contacts';
 import { draftFollowUp } from './outreach';
 import { threadHasReply } from './gmail';
@@ -117,6 +120,19 @@ export async function tailorTimedOut(sql: Sql, appId: number) {
 export async function findContactStep(sql: Sql, appId: number, today: string) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'finding_contact') return { contact: false, skipped: true };
+  // A lead you added with a person's name: that person is the contact. Look up a verified email for them if possible.
+  const leadContactId = await repo.kvGet<number>(sql, leadContactKey(appId));
+  const lc = leadContactId ? await repo.getContact(sql, leadContactId) : null;
+  if (lc && !lc.do_not_contact) {
+    if (!lc.email && features.hunter()) {
+      const { first, last } = splitName(lc.name);
+      const domain = companyDomain(app.company, app.url);
+      const e = domain ? await findEmail(first, last, domain).catch(() => null) : null;
+      if (e) await repo.setContactEmail(sql, lc.id, e.email, e.source, e.confidence);
+    }
+    await tryEvent(sql, appId, 'contact.found', ['finding_contact'], { contactId: lc.id, note: 'the person you named in /lead' });
+    return { contact: true, contactId: lc.id, lead: true };
+  }
   const r = await findContact(sql, app, today);
   if (!r.chosen) {
     await tg.send({

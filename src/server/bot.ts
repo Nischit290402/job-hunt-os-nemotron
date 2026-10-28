@@ -9,6 +9,8 @@ import { env } from './env';
 import { handleAction } from './actions';
 import { importConnections } from './contacts';
 import { fire, queueCoach, queueTailor } from './worker';
+import { appendLeadJd, createLead, isLeadContinuation, LEAD_PENDING_KEY, type LeadPending } from './lead';
+import { parseLead } from '../core/lead';
 import { sendBrief, briefData } from './steps';
 import { emit, EV } from '../inngest/client';
 import { verifyCallback } from '../core/signing';
@@ -30,6 +32,7 @@ const HELP = [
   '/pause and /resume: stop or restart all outward actions',
   '/unlock: re-enable dashboard sign-in after too many wrong codes',
   '/retry &lt;app id&gt;: restart an application workflow that stopped',
+  '/lead Company | Role | Person | Link, then the JD on the next lines: add a job you found yourself (person and link optional)',
   '/tailor &lt;app id&gt; [what to change]: make a new resume version, e.g. /tailor 3 lead with statistics',
   '/health: sources, Claude queue, last worker start, master resume sync',
   'Send Connections.csv as a file to refresh your network.',
@@ -89,6 +92,13 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       }, tg.signer));
     }
     return;
+  }
+
+  // More description for the lead you just added (a reply to the prompt, or the rest of a long paste)
+  const lp = await repo.kvGet<LeadPending>(sql, LEAD_PENDING_KEY);
+  if (isLeadContinuation(lp, msg, text)) {
+    const r = await appendLeadJd(sql, lp!, text, today);
+    return void (await tg.send(r.judging ? `Got the description (${r.chars} characters). Scoring it now; the card follows.` : `Got ${r.chars} characters so far. Send more, or the card comes once there is enough to judge.`));
   }
 
   const [cmd, ...rest] = text.split(/\s+/);
@@ -157,6 +167,26 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const ev = `outcome.${m[2].toLowerCase()}` as 'outcome.interview' | 'outcome.offer' | 'outcome.rejected';
       const s = await repo.applyEvent(sql, Number(m[1]), ev, 'you').catch((e: Error) => e.message);
       return void (await tg.send(`Application ${m[1]}: ${escapeHtml(String(s))}`));
+    }
+    case '/lead': {
+      const p = parseLead(text);
+      if (!p.ok) return void (await tg.send(escapeHtml(p.error)));
+      const r = await createLead(sql, p.lead, today);
+      if (!['today', 'snoozed'].includes(r.state)) {
+        return void (await tg.send(`${escapeHtml(p.lead.company)}, ${escapeHtml(p.lead.role)} is already in your pipeline (application ${r.appId}, ${r.state}).`));
+      }
+      const enough = r.jdChars >= 300;
+      const lines = [`Added <b>${escapeHtml(p.lead.company)}</b>, ${escapeHtml(p.lead.role)} (application ${r.appId}).${escapeHtml(r.contactNote)}`];
+      if (enough) lines.push(`Description ${escapeHtml(r.how)}. Scoring it now; the card with Apply, Skip and Snooze follows in a minute or two.`);
+      if (!enough) {
+        const promptId = await tg.askForReply(`No usable description yet (${escapeHtml(r.how)}). Reply to this message with the job description; long pastes in several parts are fine.`, 'Job description');
+        await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: Date.now() } satisfies LeadPending);
+        return void (await tg.send(lines.join('\n')));
+      }
+      // Telegram splits a paste over 4096 characters; only then do the next plain messages count as more description.
+      const maybeSplit = text.length >= 3500;
+      await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId: null, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: maybeSplit ? Date.now() : 0 } satisfies LeadPending);
+      return void (await tg.send(lines.join('\n')));
     }
     case '/tailor': {
       const m = arg.match(/^(\d+)\s*(.*)$/s);

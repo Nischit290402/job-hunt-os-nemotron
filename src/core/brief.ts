@@ -146,7 +146,7 @@ export async function approvalCard(a: ApprovalItem, sign: Signer): Promise<OutMe
   } else {
     lines.push('No verified email. Send the LinkedIn note yourself from the app.');
   }
-  if (a.linkedinUrl) lines.push(`LinkedIn note (copy, then send from the app):`, `<code>${escapeHtml(a.linkedinNote)}</code>`);
+  if (a.linkedinUrl || !a.email) lines.push(`LinkedIn message (copy, then send it yourself from the LinkedIn app):`, `<code>${escapeHtml(a.linkedinNote)}</code>`);
   const row1: Button[] = [];
   if (a.email) row1.push({ text: 'Save to Gmail drafts', callback_data: await sign('se', a.applicationId) });
   row1.push({ text: 'Edit', callback_data: await sign('ed', a.applicationId) });
