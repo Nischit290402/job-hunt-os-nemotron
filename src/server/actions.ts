@@ -54,14 +54,14 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
       case 'send': {
         const draft = await repo.latestDraft(sql, appId);
         const r = await sendDraft(sql, appId, today);
-        if (!r.ok) return { text: `Not sent: ${escapeHtml(r.reason)}.`, keepButtons: true };
+        if (!r.ok) return { text: `Not saved: ${escapeHtml(r.reason)}.`, keepButtons: true };
         if (draft?.kind === 'ask' && app.state === 'awaiting_send') {
           await repo.applyEvent(sql, appId, 'outreach.sent', 'you');
           await emit(EV.outreachDecided, { applicationId: appId, decision: 'sent' });
         }
         return {
           text: r.channel === 'email'
-            ? `Sent to ${escapeHtml(r.to)}. I will wait 3 days or until they reply, then queue the application.`
+            ? `Saved to your Gmail drafts (to ${escapeHtml(r.to)}). Review and send it from Gmail: https://mail.google.com/mail/u/0/#drafts . I will wait 3 days or until they reply, then queue the application.`
             : `Noted that you sent the LinkedIn note to ${escapeHtml(r.to)}. Waiting 3 days or for a reply.`,
         };
       }

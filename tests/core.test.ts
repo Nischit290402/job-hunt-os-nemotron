@@ -227,3 +227,15 @@ test('searchName: registry names become the name people put on their profiles', 
   assert.equal(searchName('IMC'), 'IMC');
   assert.match(xrayQueries('MOTIONAL SINGAPORE PTE. LIMITED', 'ml')[0].q, /"Motional" "machine learning engineer"/);
 });
+
+test('Gmail: the app can save drafts but has no code path that sends email', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const files = ['src/server/gmail.ts', 'src/server/outreach.ts', 'src/server/steps.ts', 'src/server/actions.ts'];
+  for (const f of files) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /messages\/send|drafts\/send|\/send['"`]/, `${f} must not call a Gmail send endpoint`);
+  }
+  const { GMAIL_SCOPES } = await import('../src/server/gmail');
+  assert.deepEqual(GMAIL_SCOPES.map((s) => s.split('/').pop()), ['gmail.compose', 'gmail.metadata']);
+  void readdirSync;
+});

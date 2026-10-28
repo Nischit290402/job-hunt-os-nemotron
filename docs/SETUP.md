@@ -96,7 +96,9 @@ This is the worker. The app starts it over HTTP whenever there is work, and it r
 Runs use your plan's usage like any Claude Code session. The app starts the task at most once every 90 seconds, and
 each start covers everything queued while that run is alive.
 
-## 6. Gmail sending (15 min, optional; without it you send referral emails yourself)
+## 6. Gmail drafts (15 min, optional; without it you write referral emails yourself)
+
+The app never sends email. An approved referral ask is saved to your Gmail drafts; you review and send it from Gmail.
 
 Use the Google Cloud project you already created (billing is not needed for Gmail).
 
@@ -104,7 +106,7 @@ Use the Google Cloud project you already created (billing is not needed for Gmai
 2. **Google Auth Platform > Branding**: app name `Job Hunt OS`, support email `nischitv29@gmail.com`.
 3. **Audience**: user type External. Add `nischitv29@gmail.com` as a test user. Then click **Publish app**
    (status "In production"). In "Testing" status Google expires the refresh token after 7 days.
-4. **Data Access > Add scopes**: `https://www.googleapis.com/auth/gmail.send` and
+4. **Data Access > Add scopes**: `https://www.googleapis.com/auth/gmail.compose` and
    `https://www.googleapis.com/auth/gmail.metadata`.
 5. **Clients > Create client**, type **Desktop app**. Copy the id and secret into `GMAIL_CLIENT_ID` and
    `GMAIL_CLIENT_SECRET`.

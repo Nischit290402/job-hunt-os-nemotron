@@ -502,21 +502,39 @@ export async function updateDraftBody(sql: Sql, messageId: number, body: string)
 }
 
 /** Claims a draft for sending. Only one caller can win, so a double tap cannot send twice. */
-export async function claimDraftForSend(sql: Sql, messageId: number): Promise<boolean> {
-  const r = await sql`UPDATE messages SET status = 'sent', sent_at = now() WHERE id = ${messageId} AND status = 'draft' RETURNING id`;
+/**
+ * Claims a draft so two taps act once. An email becomes 'gmail_draft' (saved to your Gmail drafts, sent by you from Gmail);
+ * a LinkedIn note becomes 'sent' (you sent it yourself). sent_at is the hand-over time until Gmail shows the real one.
+ */
+export async function claimDraftForSend(sql: Sql, messageId: number, channel: 'email' | 'linkedin' = 'email'): Promise<boolean> {
+  const next = channel === 'email' ? 'gmail_draft' : 'sent';
+  const r = await sql`UPDATE messages SET status = ${next}, sent_at = now() WHERE id = ${messageId} AND status = 'draft' RETURNING id`;
   return r.length === 1;
 }
 
-export async function finalizeSent(sql: Sql, messageId: number, channel: 'email' | 'linkedin', gmail?: { id: string; threadId: string }) {
-  const r = await sql`UPDATE messages SET channel = ${channel}, gmail_message_id = ${gmail?.id ?? null},
+export async function finalizeSent(sql: Sql, messageId: number, channel: 'email' | 'linkedin', gmail?: { id: string; threadId: string; draftId?: string }) {
+  const r = await sql`UPDATE messages SET channel = ${channel}, gmail_message_id = ${gmail?.id ?? null}, gmail_draft_id = ${gmail?.draftId ?? null},
                         gmail_thread_id = COALESCE(${gmail?.threadId ?? null}, gmail_thread_id)
                       WHERE id = ${messageId} RETURNING contact_id`;
   if (r.length) await sql`UPDATE contacts SET last_contacted = CURRENT_DATE WHERE id = ${r[0].contact_id}`;
 }
 
+/** Emails saved to Gmail drafts that you have not sent yet. */
+export async function gmailDraftsPending(sql: Sql) {
+  return sql<{ id: number; application_id: number; gmail_thread_id: string; sent_at: string; contact_name: string; company: string }>`
+    SELECT m.id, m.application_id, m.gmail_thread_id, m.sent_at::text AS sent_at, ct.name AS contact_name, j.company
+    FROM messages m JOIN contacts ct ON ct.id = m.contact_id JOIN applications a ON a.id = m.application_id JOIN jobs j ON j.id = a.job_id
+    WHERE m.user_id = ${USER} AND m.status = 'gmail_draft' AND m.gmail_thread_id IS NOT NULL`;
+}
+
+/** You sent the Gmail draft: record the real send time so the follow-up clock starts from it. */
+export async function promoteGmailDraft(sql: Sql, messageId: number, sentAtIso: string) {
+  await sql`UPDATE messages SET status = 'sent', sent_at = ${sentAtIso}::timestamptz WHERE id = ${messageId} AND status = 'gmail_draft'`;
+}
+
 /** Puts a claimed draft back when the send failed. */
 export async function releaseDraft(sql: Sql, messageId: number) {
-  await sql`UPDATE messages SET status = 'draft', sent_at = NULL WHERE id = ${messageId} AND status = 'sent' AND gmail_message_id IS NULL`;
+  await sql`UPDATE messages SET status = 'draft', sent_at = NULL WHERE id = ${messageId} AND status IN ('sent','gmail_draft') AND gmail_message_id IS NULL`;
 }
 
 export async function markMessageSent(sql: Sql, messageId: number, channel: 'email' | 'linkedin', gmail?: { id: string; threadId: string }) {
@@ -537,7 +555,7 @@ export async function sendCounts(sql: Sql, today: string): Promise<{ today: numb
   const r = await sql`
     SELECT count(*) FILTER (WHERE (sent_at AT TIME ZONE 'Asia/Singapore')::date = ${today}::date)::int AS today,
            count(*) FILTER (WHERE (sent_at AT TIME ZONE 'Asia/Singapore')::date >= ${ws}::date)::int AS week
-    FROM messages WHERE user_id = ${USER} AND kind = 'ask' AND channel = 'email' AND status IN ('sent','replied')`;
+    FROM messages WHERE user_id = ${USER} AND kind = 'ask' AND channel = 'email' AND status IN ('gmail_draft','sent','replied')`;
   return { today: Number(r[0].today), week: Number(r[0].week) };
 }
 

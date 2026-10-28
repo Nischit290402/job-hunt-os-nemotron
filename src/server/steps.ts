@@ -189,6 +189,17 @@ export async function checkReplies(sql: Sql, today: string): Promise<{ replied: 
   const replied: number[] = [];
   let followUps = 0;
   let bounced = 0;
+  // Gmail drafts you have sent since: record the real send time. Unsent ones get a reminder on days 2 and 5.
+  for (const d of await repo.gmailDraftsPending(sql)) {
+    const t = await threadHasReply(d.gmail_thread_id).catch(() => null);
+    if (t?.sentAt) await repo.promoteGmailDraft(sql, d.id, t.sentAt);
+    else if ([2, 5].includes(daysBetween(d.sent_at.slice(0, 10), today))) {
+      await tg.send({
+        text: `Your email to ${escapeHtml(d.contact_name)} (${escapeHtml(d.company)}) is still in Gmail drafts. Review and send it, or delete it.`,
+        keyboard: [[{ text: 'Open Gmail drafts', url: 'https://mail.google.com/mail/u/0/#drafts' }]],
+      });
+    }
+  }
   for (const m of await repo.sentEmailsAwaitingReply(sql)) {
     const t = await threadHasReply(m.gmail_thread_id);
     if (t.bounce) {

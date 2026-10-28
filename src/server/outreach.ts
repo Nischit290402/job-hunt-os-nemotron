@@ -1,16 +1,16 @@
-/** Drafting and sending referral asks. Sending runs only from a signed Send tap (actions.ts). */
+/** Referral asks. A signed tap (actions.ts) saves the email to your Gmail drafts; you send it from Gmail yourself. */
 import type { Sql } from './sql';
 import * as repo from './repo';
 import { features } from './env';
-import { sendEmail } from './gmail';
+import { createGmailDraft } from './gmail';
 import { checkSendAllowed, followUpBody } from '../core/outreach';
 import { splitName } from '../core/contacts';
 
 export type SendOutcome = { ok: true; channel: 'email' | 'linkedin'; to: string } | { ok: false; reason: string };
 
 /**
- * Sends the pending draft for an application. Email when the contact has an address and Gmail is set up; otherwise
- * records that you sent the LinkedIn note yourself. The draft row is claimed first, so two taps cannot send twice.
+ * Hands over the pending draft. With an email address and Gmail set up, it goes to your Gmail drafts (never sent from
+ * here); otherwise it records that you sent the LinkedIn note yourself. The row is claimed first, so two taps act once.
  */
 export async function sendDraft(sql: Sql, appId: number, today: string): Promise<SendOutcome> {
   const draft = await repo.latestDraft(sql, appId);
@@ -24,19 +24,19 @@ export async function sendDraft(sql: Sql, appId: number, today: string): Promise
     });
     if (!allowed.ok) return allowed;
   }
-  if (!(await repo.claimDraftForSend(sql, draft.id))) return { ok: false, reason: 'already sent' };
+  if (!(await repo.claimDraftForSend(sql, draft.id, isEmail ? 'email' : 'linkedin'))) return { ok: false, reason: 'already handled' };
   if (!isEmail) {
     await repo.finalizeSent(sql, draft.id, 'linkedin');
     return { ok: true, channel: 'linkedin', to: draft.contact_name };
   }
   await repo.logEvent(sql, 'message', draft.id, 'send.attempt', 'you', { to: draft.email });
   try {
-    const g = await sendEmail({ to: draft.email, subject: draft.subject, body: draft.body, threadId: draft.gmail_thread_id ?? undefined, inReplyTo: draft.in_reply_to ?? undefined });
+    const g = await createGmailDraft({ to: draft.email, subject: draft.subject, body: draft.body, threadId: draft.gmail_thread_id ?? undefined, inReplyTo: draft.in_reply_to ?? undefined });
     await repo.finalizeSent(sql, draft.id, 'email', g);
     return { ok: true, channel: 'email', to: draft.email };
   } catch (e) {
     await repo.releaseDraft(sql, draft.id);
-    return { ok: false, reason: `Gmail error: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, reason: `Gmail draft error: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 

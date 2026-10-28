@@ -95,7 +95,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
                 </div>
               </form>
               <div className="row" style={{ marginTop: 8 }}>
-                <ActionButton action="send" id={app.id} label={draft.channel === 'email' ? 'Send email' : 'I sent it on LinkedIn'} back={back} primary />
+                <ActionButton action="send" id={app.id} label={draft.channel === 'email' ? 'Save to Gmail drafts' : 'I sent it on LinkedIn'} back={back} primary />
                 <ActionButton action="drop" id={app.id} label="Drop" back={back} />
               </div>
               {draft.linkedin_note && <p className="small">LinkedIn note: <code>{draft.linkedin_note}</code></p>}

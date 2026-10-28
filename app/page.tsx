@@ -65,7 +65,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             </p>
           )}
           <div className="row">
-            <ActionButton action="send" id={a.applicationId} label={a.email ? 'Send email' : 'I sent it on LinkedIn'} back="/" primary />
+            <ActionButton action="send" id={a.applicationId} label={a.email ? 'Save to Gmail drafts' : 'I sent it on LinkedIn'} back="/" primary />
             <ActionButton action="drop" id={a.applicationId} label="Drop" back="/" />
             {a.jobId && <a className="btn" href={`/jobs/${a.jobId}`}>Edit on job page</a>}
           </div>
