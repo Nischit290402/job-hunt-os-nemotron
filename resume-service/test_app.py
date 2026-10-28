@@ -57,6 +57,54 @@ class TailorTests(unittest.TestCase):
         finally:
             (TMP / "verify.py").unlink()
 
+    @unittest.skipUnless(HAS_TEX, "no LaTeX engine")
+    def test_request_masters_reach_the_gate_and_a_fail_gets_one_retry(self):
+        tools = TMP / "tools"
+        tools.mkdir(exist_ok=True)
+        # Gate passes only when the tex holds a fact that is in the master fact_check would read.
+        (tools / "verify.py").write_text(
+            "import os, sys\nm = open(os.environ['RESUME_MASTER']).read()\n"
+            "print('FAIL  numbers' if 'ICML' not in open(sys.argv[1]).read() or 'ICML' not in m else 'ok')\n"
+            "sys.exit(0 if 'ICML' in open(sys.argv[1]).read() and 'ICML' in m else 1)\n"
+        )
+        calls = []
+
+        def claude(system, user):
+            calls.append(user)
+            if len(calls) == 1:
+                return {"tex": TEMPLATE, "summary": "first"}
+            self.assertIn("<gate_failures>", user)
+            self.assertIn("FAIL  numbers", user)
+            return {"tex": TEMPLATE.replace("WACV 2025", "ICML 2026"), "summary": "fixed"}
+
+        try:
+            out = app.tailor({"role": "ML Engineer Intern", "jd_text": "x", "master_vault": "vault ICML", "master_tagged": "[ID: P1] ICML 2026"}, claude=claude)
+            self.assertTrue(out["verify_passed"])
+            self.assertEqual(out["attempts"], 2)
+            self.assertIn("vault ICML", calls[0])
+            self.assertIn("fixed", out["summary"])
+        finally:
+            shutil.rmtree(tools)
+
+    def test_base_choice_follows_the_role_title(self):
+        bases = TMP / "bases"
+        bases.mkdir(exist_ok=True)
+        for n in ("Base_MLEngineer.tex", "Base_CVResearch.tex", "Base_BackendSystems.tex"):
+            (bases / n).write_text(n, encoding="utf-8")
+        try:
+            self.assertEqual(app.choose_base("Machine Learning Engineer Intern")[0], "Base_MLEngineer.tex")
+            self.assertEqual(app.choose_base("Computer Vision Research Intern")[0], "Base_CVResearch.tex")
+            self.assertEqual(app.choose_base("AI Research Scientist (PhD)")[0], "Base_CVResearch.tex")
+            self.assertEqual(app.choose_base("Software Engineer, Backend")[0], "Base_BackendSystems.tex")
+            self.assertEqual(app.choose_base("Quant Research Intern")[0], "Base_MLEngineer.tex")
+        finally:
+            shutil.rmtree(bases)
+        self.assertEqual(app.choose_base("anything")[0], "template.tex")
+
+    def test_masters_prefer_the_request_copy(self):
+        self.assertEqual(app.masters({"master_vault": "v", "master_tagged": "t"}), ("v", "t"))
+        self.assertIn("Fact: WACV", app.masters({})[1])
+
     def test_page_count(self):
         self.assertEqual(app.pdf_page_count(b"<< /Type /Pages /Count 2 >> << /Type /Page >> << /Type/Page >>"), 2)
 

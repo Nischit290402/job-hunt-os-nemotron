@@ -36,7 +36,10 @@ agent/           laptop apply-assist (Playwright, your own Chrome profile)
 tests/           unit tests + Postgres integration tests (real schema, real SQL)
 ```
 
-## Setup (about 45 minutes)
+## Setup
+
+Step-by-step instructions with every click and command: [docs/SETUP.md](docs/SETUP.md). Short version:
+
 
 1. **Accounts.** Neon (Postgres, free tier), Vercel (Hobby), Inngest (free tier, add the Vercel integration), Anthropic API key, Telegram bot from @BotFather. Optional: Brave Search API key (contact search), Hunter.io (verified emails), Google Cloud OAuth client (Gmail sending), Firecrawl key.
 2. **Environment.** Copy `.env.example` to `.env.local` and fill it in. Generate secrets with `openssl rand -hex 32`. Put the same values in Vercel's environment variables.

@@ -3,7 +3,7 @@
  * waiting to be filled, opens each in your own Chrome profile, fills the form, attaches the tailored resume and stops.
  * You review and click Submit yourself, then tap "I submitted it" in Telegram.
  *
- *   cd agent && npm install && npx tsx agent.ts
+ *   cd agent && npm install && npm start
  *
  * Env (agent/.env or your shell):
  *   JOBHUNT_URL          https://your-app.vercel.app
@@ -11,9 +11,15 @@
  *   CHROME_PROFILE_DIR   a dedicated profile folder, e.g. C:\Users\you\JobHuntChrome (sign in to ATS sites there once)
  *   ANSWERS_FILE         defaults to ./answers.local.json (copy answers.example.json)
  *   AGENT_BROWSER        chrome (default) or chromium
+ *   MASTER_VAULT         your canonical master, default E:\Projects\vault\AboutMe\Master Resume MD.md
+ *   MASTER_TAGGED        the Resume Optimizer copy fact_check.py reads, default E:\Projects\Resume Optimizer\master_resume.md
+ *
+ * The agent also pushes both master files to the app whenever either changes, so tailored resumes always use your
+ * latest vault. `npm run sync-master` does only that and exits (no browser).
  */
 import { chromium, type BrowserContext } from 'playwright';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, existsSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fillForm, type Answers } from './fill';
@@ -23,6 +29,9 @@ const TOKEN = process.env.AGENT_TOKEN ?? '';
 const PROFILE = process.env.CHROME_PROFILE_DIR ?? join(process.cwd(), '.chrome-profile');
 const ANSWERS = process.env.ANSWERS_FILE ?? join(process.cwd(), 'answers.local.json');
 const POLL_MS = 60_000;
+const MASTER_VAULT = process.env.MASTER_VAULT ?? 'E:\\Projects\\vault\\AboutMe\\Master Resume MD.md';
+const MASTER_TAGGED = process.env.MASTER_TAGGED ?? 'E:\\Projects\\Resume Optimizer\\master_resume.md';
+const SYNC_ONLY = process.argv.includes('--sync-master');
 
 if (!BASE || !TOKEN) {
   console.error('Set JOBHUNT_URL and AGENT_TOKEN.');
@@ -30,6 +39,44 @@ if (!BASE || !TOKEN) {
 }
 
 const auth = { authorization: `Bearer ${TOKEN}` };
+
+let lastMasterKey = '';
+
+/** Pushes both master files when their content changed since the last push. Never throws. */
+export async function syncMaster(log = false): Promise<void> {
+  try {
+    if (!existsSync(MASTER_VAULT)) {
+      if (log) console.error(`Master not found: ${MASTER_VAULT} (set MASTER_VAULT)`);
+      return;
+    }
+    const vault = readFileSync(MASTER_VAULT, 'utf8');
+    const tagged = existsSync(MASTER_TAGGED) ? readFileSync(MASTER_TAGGED, 'utf8') : '';
+    const key = createHash('sha256').update(vault).update('\u0000').update(tagged).digest('hex');
+    if (key === lastMasterKey) return;
+    const r = await fetch(`${BASE}/api/agent/master`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        vault,
+        tagged,
+        vaultModified: statSync(MASTER_VAULT).mtime.toISOString(),
+        taggedModified: tagged ? statSync(MASTER_TAGGED).mtime.toISOString() : new Date(0).toISOString(),
+      }),
+    });
+    if (!r.ok) throw new Error(`master sync ${r.status}`);
+    lastMasterKey = key;
+    const d = (await r.json()) as { changed: boolean };
+    if (log || d.changed) console.log(d.changed ? 'Master resume synced.' : 'Master resume already up to date.');
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : e);
+  }
+}
+
+if (SYNC_ONLY) {
+  await syncMaster(true);
+  process.exit(0);
+}
+
 const answers: Answers = JSON.parse(readFileSync(ANSWERS, 'utf8'));
 
 async function nextTask() {
@@ -58,6 +105,7 @@ async function main() {
   });
   console.log(`Agent running against ${BASE}. Leave this window open; close it to stop.`);
   for (;;) {
+    await syncMaster();
     try {
       const { task, paused } = await nextTask();
       if (paused) console.log('Paused from Telegram; waiting.');

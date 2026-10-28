@@ -15,6 +15,7 @@ import { addDays, daysBetween } from '../core/time';
 import { approvalCard, escapeHtml, readyCard, renderBrief, type ApprovalItem, type BriefData, type ReadyItem, type TodayItem } from '../core/brief';
 import { ConflictError } from './repo';
 import type { AppEvent, AppState } from '../core/state';
+import type { MasterCopy } from '../core/master';
 
 const TODAY_MAX = 3;
 
@@ -99,7 +100,8 @@ export async function tailor(sql: Sql, appId: number) {
     await tryEvent(sql, appId, 'resume.ready', ['tailoring']);
     return { ok: true, reused: true };
   }
-  const r = await tailorResume({ applicationId: appId, company: app.company, role: app.title, jdText: app.jd_text });
+  const master = await repo.kvGet<MasterCopy>(sql, 'master_resume');
+  const r = await tailorResume({ applicationId: appId, company: app.company, role: app.title, jdText: app.jd_text }, master);
   if ('error' in r) {
     await tg.send(`Resume for <b>${escapeHtml(app.company)}</b>: ${escapeHtml(r.error)}. Continuing with your base resume.`);
     await tryEvent(sql, appId, 'resume.unavailable', ['tailoring'], { note: r.error });

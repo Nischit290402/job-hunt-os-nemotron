@@ -178,10 +178,12 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const fc = await repo.firecrawlCredits(sql, today);
       const tk = await repo.tokensThisMonth(sql, today);
       const failing = (await repo.listSources(sql)).filter((s) => s.last_status && !String(s.last_status).startsWith('ok'));
+      const master = await repo.kvGet<{ syncedAt: string; vaultModified: string }>(sql, 'master_resume');
       return void (await tg.send([
         `Sources ok today: ${h.sourcesOk}/${h.sourcesTotal}. Failed steps today: ${h.failedSteps}. Judged today: ${h.judgedToday}.`,
         `Firecrawl: ${fc.today} today, ${fc.month} this month, ${fc.total} total. Claude tokens this month: ${tk.in.toLocaleString('en-SG')} in.`,
         failing.length ? `Not ok: ${failing.map((s) => `${s.id} (${escapeHtml(s.last_status)})`).join(', ')}` : 'All sources ok.',
+        master ? `Master resume: vault edit of ${master.vaultModified.slice(0, 10)}, synced ${master.syncedAt.slice(0, 10)}.` : 'Master resume: never synced. Start the laptop agent once.',
       ].join('\n')));
     }
     default:

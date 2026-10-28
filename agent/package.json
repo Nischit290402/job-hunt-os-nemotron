@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Laptop apply-assist agent: fills application forms in your own Chrome and stops before Submit.",
   "scripts": {
-    "start": "tsx agent.ts",
+    "start": "tsx --env-file-if-exists=.env agent.ts",
+    "sync-master": "tsx --env-file-if-exists=.env agent.ts --sync-master",
     "test": "node --import tsx --test fill.test.ts"
   },
   "dependencies": { "playwright": "^1.52.0", "tsx": "^4.19.0" }

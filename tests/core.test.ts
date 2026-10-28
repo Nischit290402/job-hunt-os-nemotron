@@ -189,3 +189,24 @@ test('workday: board URL, search requests, postings parsed into job links the de
   assert.equal(workdayPosted('Posted Today', now), '2026-10-29');
   assert.throws(() => workday.parse('{}', s), ParseError);
 });
+
+// ---------- master resume sync ----------
+import { masterSyncNote, validMaster, type MasterCopy } from '../src/core/master';
+
+test('master sync: notes a change, stays quiet on the same content, warns when the Optimizer copy lags the vault', () => {
+  const m = (sha: string, vaultModified: string, taggedModified: string): MasterCopy => ({ vault: 'v', tagged: 't', sha, vaultModified, taggedModified, syncedAt: '' });
+  const a = m('a', '2026-10-27T04:02:00Z', '2026-10-27T03:44:00Z');
+  assert.match(masterSyncNote(null, a)!, /Master resume synced/);
+  assert.doesNotMatch(masterSyncNote(null, a)!, /older than the vault/, '18 minutes apart is one editing session');
+  assert.equal(masterSyncNote(a, { ...a }), null);
+  assert.match(masterSyncNote(a, m('b', '2026-10-29T09:00:00Z', '2026-10-27T03:44:00Z'))!, /older than the vault/);
+});
+
+test('master sync: rejects empty or oversized uploads', () => {
+  const ok = { vault: 'x'.repeat(600), tagged: 't', vaultModified: '2026-10-27T04:02:00Z', taggedModified: '' };
+  assert.equal(validMaster(ok), true);
+  assert.equal(validMaster({ ...ok, vault: 'short' }), false);
+  assert.equal(validMaster({ ...ok, vault: 'x'.repeat(200_001) }), false);
+  assert.equal(validMaster({ ...ok, vaultModified: 'not a date' }), false);
+  assert.equal(validMaster(null), false);
+});

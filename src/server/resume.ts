@@ -1,4 +1,7 @@
-/** Client for the resume service (resume-service/, Python). The service holds your master resume and LaTeX template. */
+/**
+ * Client for the resume service (resume-service/, Python). The service holds your bases and gate scripts; the app sends
+ * the latest master resume files (synced from your laptop) with every request, so master edits need no redeploy.
+ */
 import { env, features } from './env';
 import { httpPost } from './http';
 
@@ -10,11 +13,14 @@ export interface TailorResult {
   verifyOutput: string;
 }
 
-export async function tailorResume(job: { applicationId: number; company: string; role: string; jdText: string }): Promise<TailorResult | { error: string }> {
+export async function tailorResume(
+  job: { applicationId: number; company: string; role: string; jdText: string },
+  master: { vault: string; tagged: string } | null = null
+): Promise<TailorResult | { error: string }> {
   if (!features.resume()) return { error: 'resume service not configured (RESUME_SERVICE_URL / RESUME_SERVICE_TOKEN)' };
   const r = await httpPost(
     `${env.resumeServiceUrl()}/tailor`,
-    { application_id: job.applicationId, company: job.company, role: job.role, jd_text: job.jdText },
+    { application_id: job.applicationId, company: job.company, role: job.role, jd_text: job.jdText, master_vault: master?.vault ?? '', master_tagged: master?.tagged ?? '' },
     { 'x-service-token': env.resumeServiceToken() },
     240_000, // one attempt only: must finish inside the 300 s function limit
     false
