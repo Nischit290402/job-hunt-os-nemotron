@@ -13,7 +13,7 @@
  *   node worker/cli.mjs fail <id> <reason...>     give a task back (retried up to 3 attempts)
  *   node worker/cli.mjs idle                      report the queue is empty (end of run)
  *
- * Env: JOBHUNT_URL (your Vercel URL), WORKER_TOKEN, WORKER_RUNNER (cloud | laptop).
+ * Env: JOBHUNT_URL (your Vercel domain; any path is ignored), WORKER_TOKEN, WORKER_RUNNER (cloud | laptop).
  */
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WORK = join(ROOT, '.work');
 const KIT = join(WORK, 'kit');
-const BASE = (process.env.JOBHUNT_URL || '').replace(/\/+$/, '');
+/** Keeps only scheme and host, so a pasted page URL (https://x.vercel.app/login) still works. */
+function originOf(u) {
+  try {
+    return u ? new URL(u.trim()).origin : '';
+  } catch {
+    return '';
+  }
+}
+const BASE = originOf(process.env.JOBHUNT_URL ?? '');
 const TOKEN = process.env.WORKER_TOKEN || '';
 const RUNNER = process.env.WORKER_RUNNER || 'cloud';
 const FA_SHIM = '\\ProvidesPackage{fontawesome}\n\\newcommand{\\faExternalLink}{\\ensuremath{\\nearrow}}\n';

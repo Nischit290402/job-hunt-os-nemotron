@@ -25,7 +25,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fillForm, type Answers } from './fill';
 
-const BASE = (process.env.JOBHUNT_URL ?? '').replace(/\/+$/, '');
+/** Keeps only scheme and host, so a pasted page URL (https://x.vercel.app/login) still works. */
+function originOf(u: string): string {
+  try {
+    return u ? new URL(u.trim()).origin : '';
+  } catch {
+    return '';
+  }
+}
+const BASE = originOf(process.env.JOBHUNT_URL ?? '');
 const TOKEN = process.env.AGENT_TOKEN ?? '';
 const PROFILE = process.env.CHROME_PROFILE_DIR ?? join(process.cwd(), '.chrome-profile');
 const ANSWERS = process.env.ANSWERS_FILE ?? join(process.cwd(), 'answers.local.json');

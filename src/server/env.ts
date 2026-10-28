@@ -15,7 +15,14 @@ const num = (name: string, d: number) => {
 };
 
 export const env = {
-  appUrl: () => opt('APP_URL', 'http://localhost:3000').replace(/\/+$/, ''),
+  appUrl: () => {
+    const u = opt('APP_URL', 'http://localhost:3000').trim();
+    try {
+      return new URL(u).origin; // a pasted page URL (…/login) still works
+    } catch {
+      return u.replace(/\/+$/, '');
+    }
+  },
   signingSecret: () => req('SIGNING_SECRET'),
 
   telegramToken: () => req('TELEGRAM_BOT_TOKEN'),
