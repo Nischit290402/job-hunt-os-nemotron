@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillAnswers, fillForm, type Answers, type OpenQuestion } from './fill';
+import { fillAnswers, fillPage, type Answers, type OpenQuestion } from './fill';
 import type { Page } from 'playwright';
 
 /** Keeps only scheme and host, so a pasted page URL (https://x.vercel.app/login) still works. */
@@ -215,7 +215,7 @@ async function main() {
             await applyBtn.first().click();
             await page.waitForTimeout(3000);
           }
-          const r = await fillForm(page, answers, resume);
+          const r = await fillPage(page, answers, resume);
           if (!r.filled.length && !r.resumeAttached) {
             await report(task.applicationId, 'failed', 'no form fields recognised (sign-in page or multi-step form?)');
           } else {

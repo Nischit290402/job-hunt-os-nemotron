@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillAnswers, fillForm, keyFor } from './fill';
+import { fillAnswers, fillForm, fillPage, keyFor } from './fill';
 
 const answers = {
   first_name: 'Nischit', last_name: 'Hosamani', full_name: 'Nischit Hosamani', email: 'me@example.com', phone: '+65 0000 0000',
@@ -107,6 +107,23 @@ test('radio and checkbox answers from the bank; consent and marketing boxes stay
     await page.fill('#extra', 'typed by me');
     const extra = r.questions.find((q) => /Anything else/.test(q.label))!;
     assert.equal(await fillAnswers(page, [{ qid: extra.qid, text: 'draft' }]), 0, 'never overwrites what you typed');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a company page that wraps the hiring-system form in an iframe still gets filled', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.route('https://job-boards.greenhouse.io/embed/**', (r) => r.fulfill({ contentType: 'text/html', body: GREENHOUSE }));
+    await page.route('https://careers.example.com/**', (r) =>
+      r.fulfill({ contentType: 'text/html', body: '<h1>Careers</h1><iframe src="https://job-boards.greenhouse.io/embed/job_app?for=x"></iframe>' })
+    );
+    await page.goto('https://careers.example.com/job/1');
+    await page.waitForTimeout(500);
+    const r = await fillPage(page, answers, null);
+    assert.ok(r.filled.includes('first_name') && r.filled.includes('email'));
   } finally {
     await browser.close();
   }

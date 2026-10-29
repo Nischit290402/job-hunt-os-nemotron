@@ -2,7 +2,9 @@
  * Form filler for apply pages. Fills what it can match from your answer bank, attaches the resume, and stops.
  * It never clicks Submit, never touches CAPTCHAs, and never overwrites a field that already has a value.
  */
-import type { Page, Locator } from 'playwright';
+import type { Frame, Locator, Page } from 'playwright';
+
+type Scope = Page | Frame;
 
 export type Answers = Record<string, string>;
 
@@ -63,7 +65,7 @@ export interface OpenQuestion {
   required: boolean;
 }
 
-async function labelOf(page: Page, el: Locator): Promise<string> {
+async function labelOf(page: Scope, el: Locator): Promise<string> {
   return el.evaluate((node: Element) => {
     const e = node as HTMLInputElement;
     const parts: string[] = [];
@@ -90,7 +92,7 @@ export function keyFor(label: string): string | null {
   return null;
 }
 
-export async function fillForm(page: Page, answers: Answers, resumePath: string | null): Promise<FillReport> {
+export async function fillForm(page: Scope, answers: Answers, resumePath: string | null): Promise<FillReport> {
   const report: FillReport = { filled: [], missing: [], resumeAttached: false, questions: [] };
 
   // Resume upload first: some ATS forms parse it and pre-fill other fields.
@@ -145,7 +147,7 @@ export async function fillForm(page: Page, answers: Answers, resumePath: string 
 }
 
 /** Radio groups and single checkboxes answered from yes/no entries in your answer bank. Consent boxes are never ticked. */
-async function fillChoices(page: Page, answers: Answers, report: FillReport) {
+async function fillChoices(page: Scope, answers: Answers, report: FillReport) {
   // Radio groups, by name.
   const radios = await page.locator('input[type=radio]').all();
   const groups = new Map<string, Locator[]>();
@@ -199,10 +201,28 @@ export async function fillAnswers(page: Page, answers: { qid: string; text: stri
   let n = 0;
   for (const a of answers) {
     if (!a.text?.trim()) continue;
-    const el = page.locator(`[data-jh-qid="${a.qid}"]`).first();
+    let el = page.locator(`[data-jh-qid="${a.qid}"]`).first();
+    for (const f of page.frames()) {
+      if (await el.count()) break;
+      el = f.locator(`[data-jh-qid="${a.qid}"]`).first(); // the question may sit in an embedded hiring-system frame
+    }
     if (!(await el.count()) || (await el.inputValue().catch(() => 'x')) !== '') continue;
     await el.fill(a.text);
     n++;
   }
   return n;
+}
+
+const HIRING_FRAME = /greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|workable\.com|icims\.com/i;
+
+/** Fills the page, or the embedded hiring-system form when the company page wraps one in an iframe. */
+export async function fillPage(page: Page, answers: Answers, resumePath: string | null): Promise<FillReport> {
+  const main = await fillForm(page, answers, resumePath);
+  if (main.filled.length || main.resumeAttached) return main;
+  for (const f of page.frames()) {
+    if (f === page.mainFrame() || !HIRING_FRAME.test(f.url())) continue;
+    const r = await fillForm(f, answers, resumePath);
+    if (r.filled.length || r.resumeAttached) return r;
+  }
+  return main;
 }

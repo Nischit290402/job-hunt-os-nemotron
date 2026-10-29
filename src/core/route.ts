@@ -113,7 +113,13 @@ export const BOARD_APIS: { name: string; url: (slug: string) => string; parse: (
   {
     name: 'greenhouse',
     url: (s) => `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(s)}/jobs`,
-    parse: (b) => ((JSON.parse(b).jobs ?? []) as any[]).map((j) => ({ title: String(j.title ?? ''), url: String(j.absolute_url ?? ''), location: String(j.location?.name ?? '') })),
+    // The hosted Greenhouse form, not absolute_url: company pages often wrap the form in an iframe the agent cannot reach.
+    parse: (b, slug) =>
+      ((JSON.parse(b).jobs ?? []) as any[]).map((j) => ({
+        title: String(j.title ?? ''),
+        url: j.id ? `https://job-boards.greenhouse.io/${slug}/jobs/${j.id}` : String(j.absolute_url ?? ''),
+        location: String(j.location?.name ?? ''),
+      })),
   },
   {
     name: 'lever',
