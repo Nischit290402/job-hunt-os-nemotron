@@ -332,3 +332,10 @@ test('answers: questions from the agent are cleaned, results checked', async () 
   assert.equal(resultError('answers', { output: { answers: [{ qid: 'q1', text: 'Because...' }] } }), null);
   assert.match(resultError('answers', { output: { answers: 'nope' } })!, /answers/);
 });
+
+test('resume file names follow Resume_<year>_SG_<Company>_<Role>', async () => {
+  const { resumeFileName } = await import('../src/core/contacts');
+  assert.equal(resumeFileName('MOTIONAL SINGAPORE PTE. LIMITED', 'Machine Learning Intern, Behaviors Research', '2026'), 'Resume_2026_SG_Motional_ML_Intern_Behaviors_Research.pdf');
+  assert.equal(resumeFileName('Hudson River Trading', 'Algorithm Development (Quant Research & Trading) Internship – Summer 2027', '2026'), 'Resume_2026_SG_HudsonRiverTrading_Algorithm_Development_Intern.pdf');
+  assert.equal(resumeFileName('TikTok', 'Machine Learning Engineer Intern - TikTok Search - 2027 Start', '2026'), 'Resume_2026_SG_TikTok_ML_Engineer_Intern_TikTok_Search.pdf');
+});

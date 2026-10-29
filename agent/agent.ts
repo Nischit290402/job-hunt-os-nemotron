@@ -184,7 +184,9 @@ async function collectAnswers() {
 async function downloadResume(url: string): Promise<string> {
   const r = await fetch(url, { headers: auth });
   if (!r.ok) throw new Error(`resume download ${r.status}`);
-  const path = join(mkdtempSync(join(tmpdir(), 'jh-')), 'Nischit_Hosamani_Resume.pdf');
+  // The app names the file Resume_<year>_SG_<Company>_<Role>.pdf; the job site shows that name to the recruiter.
+  const name = r.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'Resume.pdf';
+  const path = join(mkdtempSync(join(tmpdir(), 'jh-')), name.replace(/[^A-Za-z0-9_.-]/g, '_'));
   writeFileSync(path, Buffer.from(await r.arrayBuffer()));
   return path;
 }

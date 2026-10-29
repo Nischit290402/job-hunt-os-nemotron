@@ -8,7 +8,7 @@ import { sendDraft } from './outreach';
 import { createGmailDraft } from './gmail';
 import { features } from './env';
 import { applicationEmail } from '../core/outreach';
-import { searchName } from '../core/contacts';
+import { resumeFileName, searchName } from '../core/contacts';
 import { emit, EV } from '../inngest/client';
 import { addDays } from '../core/time';
 import { SKIP_REASONS, type Action } from '../core/signing';
@@ -98,7 +98,7 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
         if (!resume) return { text: `No tailored resume yet for ${label}. Send /tailor ${appId} first.`, keepButtons: true };
         const profile = await repo.getProfile(sql);
         const m = applicationEmail(app.title, searchName(app.company), profile.outreach_summary || '');
-        const file = `Nischit_Hosamani_${searchName(app.company).replace(/[^A-Za-z0-9]+/g, '_')}_Resume.pdf`;
+        const file = resumeFileName(app.company, app.title, today.slice(0, 4));
         try {
           await createGmailDraft({ to: app.apply_email, subject: m.subject, body: m.body, attachment: { filename: file, mimeType: 'application/pdf', base64: resume.pdf_base64 } });
         } catch (e) {

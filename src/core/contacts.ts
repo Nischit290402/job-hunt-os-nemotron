@@ -191,3 +191,30 @@ export function splitName(full: string): { first: string; last: string } {
   const p = full.replace(/\(.*?\)/g, ' ').replace(/,.*$/, '').trim().split(/\s+/);
   return { first: p[0] ?? '', last: p.length > 1 ? p[p.length - 1] : '' };
 }
+
+/**
+ * Resume file name: Resume_<year>_SG_<Company>_<Role>.pdf, e.g. Resume_2026_SG_Motional_ML_Intern_Behaviors_Research.pdf.
+ * Company is the plain name without spaces; the role is shortened (Machine Learning -> ML, Internship -> Intern).
+ */
+export function resumeFileName(company: string, role: string, year: string): string {
+  const co = searchName(company).replace(/&/g, 'and').replace(/[^A-Za-z0-9]+/g, '');
+  const r = String(role || '')
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\b(19|20)\d\d\b/g, ' ')
+    .replace(/\b(start|summer|winter|spring|fall|autumn|off-?cycle)\b/gi, ' ')
+    .replace(/machine learning/gi, 'ML')
+    .replace(/artificial intelligence/gi, 'AI')
+    .replace(/large language models?/gi, 'LLM')
+    .replace(/\binternship\b/gi, 'Intern')
+    .replace(/&/g, 'and')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  let roleOut = '';
+  for (const w of r) {
+    if ((roleOut + '_' + w).length > 45) break;
+    roleOut = roleOut ? `${roleOut}_${w}` : w;
+  }
+  return `Resume_${year}_SG_${co || 'Company'}${roleOut ? `_${roleOut}` : ''}.pdf`;
+}

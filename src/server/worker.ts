@@ -12,6 +12,8 @@ import { buildSystemPrompt, buildUserMessage, JUDGE_TOOL, normalizeJudgment, RUB
 import { buildDraftPrompt, DRAFT_TOOL, normalizeDraft } from '../core/outreach';
 import { approvalCard, escapeHtml, todayCard } from '../core/brief';
 import { clip } from '../core/html';
+import { resumeFileName } from '../core/contacts';
+import { sgtDate } from '../core/time';
 import { ANSWERS_SCHEMA, fireText, resultError, shouldFire, type OpenQuestionIn, type TailorResultIn, type TaskKind } from '../core/worker';
 
 export const WORKER_MODEL = 'claude-code-worker';
@@ -246,7 +248,7 @@ async function applyTailor(sql: Sql, meta: Record<string, any>, r: TailorResultI
   if (meta.redo || !(await repo.latestResume(sql, app.id))) {
     await repo.saveResume(sql, app.id, { tex: r.tex, pdfBase64: r.pdfBase64, summary: `${r.base}: ${r.summary}`.slice(0, 300), verifyPassed: r.verifyPassed, verifyOutput: String(r.verifyOutput ?? '').slice(-3000) });
     const verdict = r.verifyPassed === false ? 'verify.py FAILED, check before using' : r.verifyPassed ? 'verify.py: READY TO SEND' : 'verify.py not run';
-    await tg.sendDocument(`${app.company.replace(/[^A-Za-z0-9]+/g, '_')}_resume.pdf`, Buffer.from(r.pdfBase64, 'base64'), `${app.company}, ${app.title} (app ${app.id})\n${r.base}: ${r.summary}\n${verdict}`);
+    await tg.sendDocument(resumeFileName(app.company, app.title, sgtDate().slice(0, 4)), Buffer.from(r.pdfBase64, 'base64'), `${app.company}, ${app.title} (app ${app.id})\n${r.base}: ${r.summary}\n${verdict}`);
   }
   await tryEvent(sql, app.id, 'resume.ready', ['tailoring']);
   await emitResumeDone(app.id);
