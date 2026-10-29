@@ -215,8 +215,11 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
     }
     case '/retry': {
       if (!/^\d+$/.test(arg)) return void (await tg.send('Usage: /retry &lt;app id&gt;'));
+      const attempts = (await repo.kvGet<Record<string, unknown>>(sql, 'agent_attempts')) ?? {};
+      delete attempts[arg];
+      await repo.kvSet(sql, 'agent_attempts', attempts); // lets the laptop agent fill the form again
       await emit(EV.apply, { applicationId: Number(arg) });
-      return void (await tg.send(`Restarted the workflow for application ${arg}. Steps already done are skipped.`));
+      return void (await tg.send(`Restarted the workflow for application ${arg}. Steps already done are skipped, and the laptop agent will fill the form again.`));
     }
     case '/unlock':
       await repo.invalidateLoginCodes(sql);

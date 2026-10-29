@@ -13,12 +13,25 @@ export async function GET(req: Request) {
   if (await repo.isPaused(sql)) return NextResponse.json({ task: null, paused: true });
   // Email-route applications have no form: they go to Gmail drafts from the Telegram card instead.
   const rows = (await repo.appsInStates(sql, ['ready_to_fill'])).filter((r) => r.apply_route !== 'email');
-  const attempted = (await repo.kvGet<Record<string, string>>(sql, 'agent_attempts')) ?? {};
-  const next = [...rows].reverse().find((r) => !attempted[String(r.id)]);
+  // One attempt per application and link: a new link (official page found, /referral) gets a fresh attempt.
+  const attempted = (await repo.kvGet<Record<string, string | { at: string; url: string }>>(sql, 'agent_attempts')) ?? {};
+  const linkOf = async (id: number) => {
+    const a = await repo.getApplication(sql, id);
+    return a ? a.referral_url || a.url : '';
+  };
+  let next: (typeof rows)[number] | undefined;
+  for (const r of [...rows].reverse()) {
+    const prev = attempted[String(r.id)];
+    // An old entry without a link counts as tried; /retry clears it.
+    if (!prev || (typeof prev === 'object' && prev.url !== (await linkOf(r.id)))) {
+      next = r;
+      break;
+    }
+  }
   if (!next) return NextResponse.json({ task: null });
   const app = await repo.getApplication(sql, next.id);
   const resume = await repo.latestResume(sql, next.id);
-  attempted[String(next.id)] = new Date().toISOString();
+  attempted[String(next.id)] = { at: new Date().toISOString(), url: app?.referral_url || next.url };
   await repo.kvSet(sql, 'agent_attempts', attempted);
   return NextResponse.json({
     task: {
