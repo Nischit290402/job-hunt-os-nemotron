@@ -36,22 +36,23 @@ export async function tryEvent(sql: Sql, appId: number, event: AppEvent, expect:
 // ---------- daily ----------
 
 /** Auto-snoozes Today items left undecided for 3 days, returns due snoozes, then tops Today up to 3. */
-export async function buildToday(sql: Sql, today: string) {
+/** Fills Today up to 3 jobs. `extra` (from /more) adds that many of the next-best jobs on top, right now. */
+export async function buildToday(sql: Sql, today: string, extra = 0) {
   for (const id of await repo.staleTodayIds(sql, today)) {
     await tryEvent(sql, id, 'decide.snooze', ['today'], { snoozeUntil: addDays(today, 3), note: 'auto-snoozed after 3 days' });
   }
   const current = await repo.appsInStates(sql, ['today']);
   const due = await repo.dueSnoozedIds(sql, today);
-  const slots = Math.max(0, TODAY_MAX - current.length);
+  const slots = extra > 0 ? extra : Math.max(0, TODAY_MAX - current.length);
   // MyCareersFuture and aggregator jobs: find the employer's own posting (or an apply email) first; hide the rest.
   const routes = await resolveRoutes(sql);
   if (routes.checked) await repo.recordRun(sql, { step: 'routes', seconds: 0, ok: !routes.note, error: routes.note || null, detail: routes });
-  const picks = pickToday(await repo.rankCandidates(sql), await repo.employerInfo(sql), { today, max: TODAY_MAX, jobTypes: await repo.jobTypes(sql) })
+  const picks = pickToday(await repo.rankCandidates(sql), await repo.employerInfo(sql), { today, max: TODAY_MAX + current.length + extra, jobTypes: await repo.jobTypes(sql) })
     .filter((p) => !current.some((c) => c.job_id === p.jobId))
     .filter((p) => !current.some((c) => c.company === p.company));
   const added: number[] = [];
   for (const p of picks.slice(0, slots)) added.push(await repo.putInToday(sql, p.jobId, today));
-  return { kept: current.length, added: added.length, dueSnoozes: due.length };
+  return { kept: current.length, added: added.length, addedIds: added, dueSnoozes: due.length };
 }
 
 export async function briefData(sql: Sql, today: string): Promise<BriefData> {

@@ -85,6 +85,8 @@ t('Today: one job per employer, judged jobs only, brief data carries scores and 
   assert.equal(d.week.target, 5);
   // Running it again the same day changes nothing.
   assert.equal((await buildToday(sql, TODAY)).added, 0);
+  // /more never adds a second job from an employer already in Today.
+  assert.equal((await buildToday(sql, TODAY, 3)).added, 0);
 });
 
 t('decisions: apply, contact found, draft, sent; Today refills next day; stale item auto-snoozes', async () => {

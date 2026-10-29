@@ -12,7 +12,7 @@ import { fire, queueCoach, queueTailor } from './worker';
 import { appendLeadJd, createLead, isLeadContinuation, LEAD_PENDING_KEY, type LeadPending } from './lead';
 import { parseLead } from '../core/lead';
 import { parseJobTypes } from '../core/filters';
-import { sendBrief, briefData } from './steps';
+import { sendBrief, briefData, buildToday } from './steps';
 import { emit, EV } from '../inngest/client';
 import { verifyCallback } from '../core/signing';
 import { approvalCard, escapeHtml, todayCard } from '../core/brief';
@@ -23,6 +23,7 @@ import { clip } from '../core/html';
 const HELP = [
   '<b>Commands</b>',
   '/today: the jobs waiting for a decision',
+  '/more [n]: add the next n best jobs to Today now (default 3, up to 10)',
   '/brief: send the full morning brief now',
   '/pipeline: counts by stage',
   '/job &lt;company&gt;: open jobs at a company with scores',
@@ -118,6 +119,15 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       let i = 1;
       for (const t of d.today) await tg.send(await todayCard(t, i++, tg.signer, d.dashboardUrl));
       return;
+    }
+    case '/more': {
+      const n = Math.min(10, Math.max(1, Number(arg) || 3));
+      const r = await buildToday(sql, today, n);
+      if (!r.added) return void (await tg.send('No more jobs to add right now: every scored job that fits your filters is already in Today or decided. Try /jobtypes or wait for tomorrow\'s collection.'));
+      const d = await briefData(sql, today);
+      let i = 1;
+      for (const t of d.today.filter((x) => r.addedIds.includes(x.applicationId))) await tg.send(await todayCard(t, i++, tg.signer, d.dashboardUrl));
+      return void (await tg.send(`Added ${r.added} job${r.added === 1 ? '' : 's'} to Today${r.added < n ? ' (that is all that fit your filters right now)' : ''}.`));
     }
     case '/pipeline': {
       const rows = await repo.appsInStates(sql, PIPELINE_COLUMNS.flatMap((c) => c.states) as AppState[]);
