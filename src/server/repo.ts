@@ -8,7 +8,7 @@ import type { SourceRow } from '../core/sources';
 import type { Candidate, EmployerInfo } from '../core/ranker';
 import type { JudgeOutput } from '../core/judge';
 import { canonicalKey, hash12, normCompany, xkey } from '../core/keys';
-import { channelRank, type Channel } from '../core/filters';
+import { channelRank, DEFAULT_JOB_TYPES, type Channel, type JobType } from '../core/filters';
 import { transition, type AppEvent, type AppState } from '../core/state';
 import { addDays, weekStart } from '../core/time';
 import { CLAIM_TTL_MIN, LAPTOP_AFTER_MIN, MAX_ATTEMPTS, TASK_KINDS, type TaskKind } from '../core/worker';
@@ -33,6 +33,11 @@ export async function kvSet(sql: Sql, key: string, value: unknown) {
 }
 
 export const isPaused = async (sql: Sql) => (await kvGet<boolean>(sql, 'paused')) === true;
+
+/** Which job types reach Today (/jobtypes). Default: internships and part-time. */
+export async function jobTypes(sql: Sql): Promise<JobType[]> {
+  return (await kvGet<JobType[]>(sql, 'job_types')) ?? DEFAULT_JOB_TYPES;
+}
 
 /** Atomic counter in kv; returns the new value. Concurrent callers each get a distinct number. */
 export async function kvIncrement(sql: Sql, key: string): Promise<number> {
@@ -234,7 +239,7 @@ export async function getJob(sql: Sql, jobId: number) {
 
 export async function rankCandidates(sql: Sql): Promise<Candidate[]> {
   const rows = await sql`
-    SELECT j.id AS "jobId", c.key AS "companyKey", j.company, j.title, j.track, lj.score, lj.verdict, lj.deadline,
+    SELECT j.id AS "jobId", c.key AS "companyKey", j.company, j.title, j.track, j.hours_flag AS "hoursFlag", lj.score, lj.verdict, lj.deadline,
            COALESCE(j.posted::text, '') AS posted, j.first_seen::text AS "firstSeen",
            a.state AS "appState", a.snooze_until::text AS "snoozeUntil"
     FROM jobs j JOIN companies c ON c.id = j.company_id

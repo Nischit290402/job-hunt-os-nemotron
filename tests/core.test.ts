@@ -239,3 +239,36 @@ test('Gmail: the app can save drafts but has no code path that sends email', asy
   assert.deepEqual(GMAIL_SCOPES.map((s) => s.split('/').pop()), ['gmail.compose', 'gmail.metadata']);
   void readdirSync;
 });
+
+test('job types: part-time is its own category, full-time stays out of Today until switched on', async () => {
+  const { evaluateJob, buildRules, jobTypeOf, parseJobTypes } = await import('../src/core/filters');
+  const { DEFAULT_TERMS } = await import('../src/core/terms');
+  const { scoreCandidate } = await import('../src/core/ranker');
+  const { verdictFor } = await import('../src/core/judge');
+  const R = buildRules(DEFAULT_TERMS);
+  const now = Date.parse('2026-10-29T00:00:00Z');
+  const job = (title: string, extra: Partial<Parameters<typeof evaluateJob>[0]> = {}) =>
+    evaluateJob({ company: 'X', title, location: 'Singapore', url: 'u', posted: '', channel: 'ATS', ...extra }, R, now);
+
+  const pt = job('Machine Learning Engineer (Part-Time)');
+  assert.ok(pt.action === 'keep' && pt.track === 'sg' && jobTypeOf(pt.track, pt.hoursFlag) === 'parttime');
+  const mcfPt = job('AI Research Assistant', { partTime: true });
+  assert.ok(mcfPt.action === 'keep' && jobTypeOf(mcfPt.track, mcfPt.hoursFlag) === 'parttime');
+  const ft = job('Machine Learning Engineer');
+  assert.ok(ft.action === 'keep' && jobTypeOf(ft.track, ft.hoursFlag) === 'fulltime');
+  const intern = job('Machine Learning Intern');
+  assert.ok(intern.action === 'keep' && jobTypeOf(intern.track, intern.hoursFlag) === 'intern');
+
+  assert.deepEqual(parseJobTypes('intern part-time'), ['intern', 'parttime']);
+  assert.deepEqual(parseJobTypes('fulltime intern'), ['intern', 'fulltime']);
+  assert.equal(parseJobTypes('banana'), null);
+
+  const cand = { jobId: 1, companyKey: 'x', company: 'X', title: 't', track: 'ft' as const, hoursFlag: '', score: 85, verdict: 'Watch' as const, deadline: '', posted: '', firstSeen: '2026-10-29' };
+  assert.equal(scoreCandidate(cand, undefined, { today: '2026-10-29' }), null, 'full-time hidden by default');
+  assert.ok(scoreCandidate(cand, undefined, { today: '2026-10-29', jobTypes: ['intern', 'parttime', 'fulltime'] }));
+  assert.equal(scoreCandidate({ ...cand, track: 'sg', hoursFlag: 'part-time' }, undefined, { today: '2026-10-29', jobTypes: ['intern'] }), null);
+
+  const gates = { A1: 'PASS', A2: 'PASS', A3: 'PASS', A4: 'PASS', A5: 'PASS' } as const;
+  assert.equal(verdictFor(85, gates as any, '', 'ft', '2026-10-29'), 'Watch');
+  assert.equal(verdictFor(85, gates as any, '', 'ft', '2026-10-29', true), 'Apply now');
+});

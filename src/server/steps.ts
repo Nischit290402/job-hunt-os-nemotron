@@ -42,7 +42,7 @@ export async function buildToday(sql: Sql, today: string) {
   const current = await repo.appsInStates(sql, ['today']);
   const due = await repo.dueSnoozedIds(sql, today);
   const slots = Math.max(0, TODAY_MAX - current.length);
-  const picks = pickToday(await repo.rankCandidates(sql), await repo.employerInfo(sql), { today, max: TODAY_MAX })
+  const picks = pickToday(await repo.rankCandidates(sql), await repo.employerInfo(sql), { today, max: TODAY_MAX, jobTypes: await repo.jobTypes(sql) })
     .filter((p) => !current.some((c) => c.job_id === p.jobId))
     .filter((p) => !current.some((c) => c.company === p.company));
   const added: number[] = [];

@@ -17,6 +17,7 @@ export interface RawJob {
   channel: Channel;
   remote?: boolean;
   intern?: boolean;
+  partTime?: boolean; // the source says so (MyCareersFuture employment type)
   extra?: string;
   hint?: string; // 'remote' for hand-picked programme sources
   jdText?: string;
@@ -76,6 +77,33 @@ const CHANNEL_RANK: Record<Channel, number> = { ATS: 1, CRAWL: 2, LIST: 3, SGP: 
 /** Lower is more trusted. When two channels report the same job, the more trusted apply link wins. */
 export const channelRank = (c: Channel) => CHANNEL_RANK[c] ?? 9;
 
+// ---------- job types (intern, part-time, full-time) ----------
+
+export const PART_TIME = /\bpart[- ]?time\b|\bparttime\b|\(pt\)|\bhourly\b/i;
+export const PART_TIME_FLAG = 'part-time';
+export const JOB_TYPES = ['intern', 'parttime', 'fulltime'] as const;
+export type JobType = (typeof JOB_TYPES)[number];
+export const DEFAULT_JOB_TYPES: JobType[] = ['intern', 'parttime'];
+
+/** Full-time = the 'ft' track. Part-time = flagged at collection. Everything else kept is an internship or programme. */
+export function jobTypeOf(track: Track, hoursFlag: string | null | undefined): JobType {
+  if (track === 'ft') return 'fulltime';
+  if (String(hoursFlag || '').includes(PART_TIME_FLAG)) return 'parttime';
+  return 'intern';
+}
+
+/** Parses "/jobtypes intern parttime fulltime" words; returns null when nothing valid was given. */
+export function parseJobTypes(words: string): JobType[] | null {
+  const map: Record<string, JobType> = {
+    intern: 'intern', interns: 'intern', internship: 'intern', internships: 'intern',
+    parttime: 'parttime', 'part-time': 'parttime', pt: 'parttime',
+    fulltime: 'fulltime', 'full-time': 'fulltime', ft: 'fulltime', jobs: 'fulltime',
+  };
+  const out = new Set<JobType>();
+  for (const w of words.toLowerCase().split(/[\s,]+/).filter(Boolean)) if (map[w]) out.add(map[w]);
+  return out.size ? JOB_TYPES.filter((t) => out.has(t)) : null;
+}
+
 export function familyOf(title: string): string {
   if (/quant|trader|trading/i.test(title)) return 'quant';
   if (/vision|perception|image|video|robotic/i.test(title)) return 'cv';
@@ -109,6 +137,7 @@ export function evaluateJob(job: RawJob, R: Rules, now: number = Date.now()): De
   if (isPhdOnly(title)) return rej('phd_only');
 
   const isIntern = !!R.intern?.test(title) || job.intern === true;
+  const isPartTime = !isIntern && (job.partTime === true || PART_TIME.test(`${title} ${job.extra || ''}`));
 
   const years = (title.match(/20\d\d/g) || []).map(Number);
   if (years.length) {
@@ -142,6 +171,7 @@ export function evaluateJob(job: RawJob, R: Rules, now: number = Date.now()): De
   if (R.archive?.test(title)) return keep('archive', '');
   if (isSG) {
     if (isIntern) return keep('sg', '');
+    if (isPartTime) return keep('sg', PART_TIME_FLAG);
     if (R.ft?.test(title)) return keep('ft', '');
     return rej('sg_not_intern_not_ft');
   }

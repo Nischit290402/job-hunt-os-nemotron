@@ -8,6 +8,7 @@
  *
  * The v0.3.1 age bonus is gone: it pushed old, ignored rows to the top.
  */
+import { DEFAULT_JOB_TYPES, jobTypeOf, type JobType } from './filters';
 import { daysBetween, isIsoDate } from './time';
 
 export interface Candidate {
@@ -16,6 +17,7 @@ export interface Candidate {
   company: string;
   title: string;
   track: 'sg' | 'remote' | 'ft' | 'archive';
+  hoursFlag?: string | null;
   score: number;
   verdict: 'Apply now' | 'Apply this week' | 'Watch' | 'Skip';
   deadline: string; // 'YYYY-MM-DD' | 'rolling' | ''
@@ -39,6 +41,8 @@ export interface RankOptions {
   today: string;
   max?: number;
   minScore?: number;
+  /** Job types that may reach Today. Default: internships and part-time. */
+  jobTypes?: JobType[];
 }
 
 export interface Ranked extends Candidate {
@@ -68,7 +72,8 @@ export function freshBonus(posted: string, firstSeen: string, today: string): nu
 
 export function scoreCandidate(c: Candidate, emp: EmployerInfo | undefined, opts: RankOptions): Ranked | null {
   const minScore = opts.minScore ?? 55;
-  if (c.track === 'ft' || c.track === 'archive') return null;
+  if (c.track === 'archive') return null;
+  if (!(opts.jobTypes ?? DEFAULT_JOB_TYPES).includes(jobTypeOf(c.track, c.hoursFlag))) return null;
   if (c.verdict === 'Skip' || c.score < minScore) return null;
   if (c.appState && !(c.appState === 'snoozed' && c.snoozeUntil && c.snoozeUntil <= opts.today) && c.appState !== 'today') {
     return null;

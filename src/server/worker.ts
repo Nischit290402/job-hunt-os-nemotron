@@ -71,6 +71,7 @@ export async function queueJudgeJob(sql: Sql, j: repo.JobToJudge, today: string,
   const input: JudgeInput = {
     jobId: j.id, company: j.company, title: j.title, location: j.location, track: j.track, startWindow: j.start_window,
     hoursFlag: j.hours_flag, eligFlag: j.elig_flag, knownContacts: await repo.connectionNamesByCompany(sql, j.company_key), jdText: j.jd_text,
+    fullTimeWanted: (await repo.jobTypes(sql)).includes('fulltime'),
   };
   return repo.enqueueTask(sql, 'judge', `job:${j.id}:${j.jd_hash}`, {
     instructions: system ?? (await judgeSystemPrompt(sql)),

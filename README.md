@@ -52,7 +52,7 @@ Step-by-step instructions with every click and command: [docs/SETUP.md](docs/SET
 
 ## Telegram commands
 
-`/today`, `/brief`, `/pipeline`, `/job <company>`, `/lead Company | Role | Person | Link` (JD on the next lines), `/tailor <app id> [guidance]`, `/prefs`, `/prefs rule <text>`, `/prefs exclude <term>`, `/prefs drop <id>`, `/cap <company> <n>`, `/referral <app id> <link>`, `/submitted <app id>`, `/outcome <app id> interview|offer|rejected`, `/pause`, `/resume`, `/retry <app id>`, `/unlock`, `/health`. Any other text goes to the read-only coach.
+`/today`, `/brief`, `/pipeline`, `/job <company>`, `/lead Company | Role | Person | Link` (JD on the next lines), `/jobtypes [intern parttime fulltime]`, `/tailor <app id> [guidance]`, `/prefs`, `/prefs rule <text>`, `/prefs exclude <term>`, `/prefs drop <id>`, `/cap <company> <n>`, `/referral <app id> <link>`, `/submitted <app id>`, `/outcome <app id> interview|offer|rejected`, `/pause`, `/resume`, `/retry <app id>`, `/unlock`, `/health`. Any other text goes to the read-only coach.
 
 The dashboard sign-in sends a 6-digit code to your Telegram chat; there are no passwords. Only the newest code works, each code allows 5 tries, and at most 10 codes are issued a day. If sign-in locks, send `/unlock` to the bot.
 

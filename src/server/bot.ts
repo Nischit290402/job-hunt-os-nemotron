@@ -11,6 +11,7 @@ import { importConnections } from './contacts';
 import { fire, queueCoach, queueTailor } from './worker';
 import { appendLeadJd, createLead, isLeadContinuation, LEAD_PENDING_KEY, type LeadPending } from './lead';
 import { parseLead } from '../core/lead';
+import { parseJobTypes } from '../core/filters';
 import { sendBrief, briefData } from './steps';
 import { emit, EV } from '../inngest/client';
 import { verifyCallback } from '../core/signing';
@@ -32,6 +33,7 @@ const HELP = [
   '/pause and /resume: stop or restart all outward actions',
   '/unlock: re-enable dashboard sign-in after too many wrong codes',
   '/retry &lt;app id&gt;: restart an application workflow that stopped',
+  '/jobtypes [intern parttime fulltime]: which job types reach Today (send /jobtypes alone to see the current setting)',
   '/lead Company | Role | Person | Link, then the JD on the next lines: add a job you found yourself (person and link optional)',
   '/tailor &lt;app id&gt; [what to change]: make a new resume version, e.g. /tailor 3 lead with statistics',
   '/health: sources, Claude queue, last worker start, master resume sync',
@@ -189,6 +191,17 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const maybeSplit = text.length >= 3500;
       await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId: null, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: maybeSplit ? Date.now() : 0 } satisfies LeadPending);
       return void (await tg.send(lines.join('\n')));
+    }
+    case '/jobtypes': {
+      const current = await repo.jobTypes(sql);
+      const label = (t: string[]) => t.map((x) => ({ intern: 'internships', parttime: 'part-time', fulltime: 'full-time' })[x] ?? x).join(', ');
+      if (!arg) return void (await tg.send(`Today shows: <b>${label(current)}</b>.\nChange with /jobtypes intern parttime fulltime (any of the three).`));
+      const next = parseJobTypes(arg);
+      if (!next) return void (await tg.send('Use any of: intern, parttime, fulltime. Example: /jobtypes intern parttime'));
+      await repo.kvSet(sql, 'job_types', next);
+      const ftChanged = current.includes('fulltime') !== next.includes('fulltime');
+      if (ftChanged) await emit(EV.rejudge, {}); // full-time verdicts are capped only while you are not looking for full-time
+      return void (await tg.send(`Today now shows: <b>${label(next)}</b>.${ftChanged ? ' Re-scoring open jobs so full-time verdicts match; Today refreshes when that finishes.' : ' Takes effect from the next Today refill.'}`));
     }
     case '/tailor': {
       const m = arg.match(/^(\d+)\s*(.*)$/s);

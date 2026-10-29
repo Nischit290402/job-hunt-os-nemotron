@@ -21,6 +21,8 @@ export interface JudgeInput {
   eligFlag: string;
   knownContacts: string[];
   jdText: string;
+  /** Full-time roles are wanted (the /jobtypes switch). Off: full-time is capped at Watch. */
+  fullTimeWanted?: boolean;
 }
 
 export interface JudgeOutput {
@@ -106,12 +108,12 @@ export function buildUserMessage(j: JudgeInput): string {
 const GATE_KEYS = ['A1', 'A2', 'A3', 'A4', 'A5'] as const;
 
 /** Applies the bands in code. Deadline exception: score 70+ with a dated deadline within 14 days is Apply now. */
-export function verdictFor(score: number, gates: JudgeOutput['gates'], deadline: string, track: JudgeInput['track'], today: string): Verdict {
+export function verdictFor(score: number, gates: JudgeOutput['gates'], deadline: string, track: JudgeInput['track'], today: string, fullTimeWanted = false): Verdict {
   if (GATE_KEYS.some((g) => gates[g] === 'FAIL')) return 'Skip';
   const soon = isIsoDate(deadline) && daysBetween(today, deadline) >= 0 && daysBetween(today, deadline) <= 14;
   let v: Verdict = score >= 80 || (soon && score >= 70) ? 'Apply now' : score >= 65 ? 'Apply this week' : score >= 50 ? 'Watch' : 'Skip';
-  // Full-time watch and archive rows are for awareness only.
-  if ((track === 'ft' || track === 'archive') && (v === 'Apply now' || v === 'Apply this week')) v = 'Watch';
+  // Archive rows, and full-time rows while you are not looking for full-time, are for awareness only.
+  if (((track === 'ft' && !fullTimeWanted) || track === 'archive') && (v === 'Apply now' || v === 'Apply this week')) v = 'Watch';
   return v;
 }
 
@@ -139,5 +141,5 @@ export function normalizeJudgment(raw: unknown, input: JudgeInput, today: string
   let deadline = String(r.deadline ?? '').trim();
   if (!(isIsoDate(deadline) || deadline === 'rolling')) deadline = '';
   const notes = String(r.notes ?? '').replace(/\s*—\s*/g, ', ').slice(0, 500);
-  return { score, gates, flags, notes, deadline, verdict: verdictFor(score, gates, deadline, input.track, today) };
+  return { score, gates, flags, notes, deadline, verdict: verdictFor(score, gates, deadline, input.track, today, input.fullTimeWanted === true) };
 }

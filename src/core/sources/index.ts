@@ -237,6 +237,7 @@ export const mcf = {
         posted: toSgtDate(meta.newPostingDate || meta.createdAt),
         channel: 'SGP' as const,
         intern: /intern|attachment/i.test(JSON.stringify(r.employmentTypes || [])),
+        partTime: /part[- ]?time/i.test(JSON.stringify(r.employmentTypes || [])),
         jdText: r.description ? htmlToText(r.description) : '',
         atsName: r.uuid ? 'mcf' : undefined,
         atsJobId: r.uuid || undefined,
