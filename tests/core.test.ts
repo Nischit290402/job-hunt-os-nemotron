@@ -339,3 +339,13 @@ test('resume file names follow Resume_<year>_SG_<Company>_<Role>', async () => {
   assert.equal(resumeFileName('Hudson River Trading', 'Algorithm Development (Quant Research & Trading) Internship – Summer 2027', '2026'), 'Resume_2026_SG_HudsonRiverTrading_Algorithm_Development_Intern.pdf');
   assert.equal(resumeFileName('TikTok', 'Machine Learning Engineer Intern - TikTok Search - 2027 Start', '2026'), 'Resume_2026_SG_TikTok_ML_Engineer_Intern_TikTok_Search.pdf');
 });
+
+test('companies view: query parsing clamps input and status labels cover every state', async () => {
+  const { parseCompanyQuery, jobStatus } = await import('../src/core/companies');
+  const q = parseCompanyQuery(new URLSearchParams({ q: "50%_off'", type: 'bogus', sort: 'x', offset: '-5', limit: '999' }));
+  assert.deepEqual(q, { q: "50  off'", type: '', sort: 'score', offset: 0, limit: 50 });
+  assert.equal(jobStatus(null, false).label, 'Scoring');
+  assert.equal(jobStatus(null, true).label, 'Not picked');
+  assert.equal(jobStatus('prefilled', true).label, 'Ready to submit');
+  assert.equal(jobStatus('applied', true).tone, 'good');
+});

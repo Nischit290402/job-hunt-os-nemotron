@@ -111,3 +111,29 @@ t('decisions: apply, contact found, draft, sent; Today refills next day; stale i
   const s = await repo.getApplication(sql, second.applicationId);
   assert.equal(s?.state, 'snoozed');
 });
+
+t('Companies view: counts by type and fit, jobs page by page, filters', async () => {
+  const { companyOverview, companyJobs, companyTotals } = await import('../src/server/companies');
+  const { parseCompanyQuery } = await import('../src/core/companies');
+  const all = await companyOverview(sql, parseCompanyQuery(new URLSearchParams()));
+  const drw = all.rows.find((r) => r.name === 'DRW');
+  assert.ok(drw, 'DRW is listed');
+  assert.equal(drw.jobs, drw.intern + drw.parttime + drw.fulltime);
+  assert.equal(drw.jobs, drw.v_now + drw.v_week + drw.v_watch + drw.v_skip + drw.v_none);
+  assert.equal(drw.best, 81);
+  assert.ok(all.total >= all.rows.length);
+
+  const page1 = await companyJobs(sql, drw.id, '', 0, 1);
+  assert.equal(page1.rows.length, 1);
+  assert.equal(page1.total, drw.jobs);
+  const page2 = await companyJobs(sql, drw.id, '', 1, 1);
+  if (drw.jobs > 1) assert.notEqual(page2.rows[0].id, page1.rows[0].id);
+
+  const searched = await companyOverview(sql, parseCompanyQuery(new URLSearchParams({ q: 'dr' })));
+  assert.ok(searched.rows.every((r) => /dr/i.test(r.name)));
+  const ft = await companyOverview(sql, parseCompanyQuery(new URLSearchParams({ type: 'fulltime' })));
+  assert.ok(ft.rows.every((r) => r.fulltime === r.jobs));
+  const totals = await companyTotals(sql);
+  assert.equal(totals.jobs, totals.intern + totals.parttime + totals.fulltime);
+  for (const sort of ['jobs', 'recent', 'name']) await companyOverview(sql, parseCompanyQuery(new URLSearchParams({ sort })));
+});
