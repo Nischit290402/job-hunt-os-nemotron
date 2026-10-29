@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillAnswers, fillForm, fillPage, keyFor } from './fill';
+import { answersFor, fillAnswers, fillForm, fillPage, keyFor } from './fill';
 
 const answers = {
   first_name: 'Nischit', last_name: 'Hosamani', full_name: 'Nischit Hosamani', email: 'me@example.com', phone: '+65 0000 0000',
@@ -127,4 +127,13 @@ test('a company page that wraps the hiring-system form in an iframe still gets f
   } finally {
     await browser.close();
   }
+});
+
+test('job-type answers replace the plain key for that job type only', () => {
+  const bank = { availability: 'any', availability_intern: 'May 2027 to Dec 2027', availability_fulltime: 'Dec 2027 onwards', email: 'x@y.z' };
+  assert.equal(answersFor(bank, 'intern').availability, 'May 2027 to Dec 2027');
+  assert.equal(answersFor(bank, 'fulltime').availability, 'Dec 2027 onwards');
+  assert.equal(answersFor(bank, 'parttime').availability, 'any');
+  assert.equal(answersFor(bank, 'intern').availability_fulltime, undefined);
+  assert.equal(answersFor(bank, 'intern').email, 'x@y.z');
 });

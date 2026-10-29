@@ -8,6 +8,23 @@ type Scope = Page | Frame;
 
 export type Answers = Record<string, string>;
 
+export type JobType = 'intern' | 'parttime' | 'fulltime';
+const VARIANT = /^(.+)_(intern|parttime|fulltime)$/;
+
+/**
+ * The answer bank for one job. A key ending in _intern, _parttime or _fulltime replaces the plain key for that job
+ * type only, so "availability_intern" and "availability_fulltime" each go to the right form; other variants are dropped.
+ */
+export function answersFor(answers: Answers, type: JobType): Answers {
+  const out: Answers = {};
+  for (const [k, v] of Object.entries(answers)) if (!VARIANT.test(k)) out[k] = v;
+  for (const [k, v] of Object.entries(answers)) {
+    const m = k.match(VARIANT);
+    if (m && m[2] === type && String(v ?? '').trim()) out[m[1]] = v;
+  }
+  return out;
+}
+
 /** Label patterns to answer-bank keys. First match wins, so specific patterns come first. */
 export const RULES: { re: RegExp; key: string }[] = [
   { re: /first\s*name|given\s*name|preferred\s*first/i, key: 'first_name' },

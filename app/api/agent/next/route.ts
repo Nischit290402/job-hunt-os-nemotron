@@ -5,6 +5,7 @@ import * as repo from '@/src/server/repo';
 import { agentAuthorized } from '@/src/server/auth';
 import { env } from '@/src/server/env';
 import { greenhouseFormFor } from '@/src/core/route';
+import { jobTypeOf, type Track } from '@/src/core/filters';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +45,8 @@ export async function GET(req: Request) {
       applicationId: next.id,
       company: next.company,
       title: next.title,
+      // Picks the per-job-type answers in the agent's answer bank (availability_intern, availability_fulltime, ...).
+      jobType: app ? jobTypeOf(app.track as Track, app.hours_flag) : 'intern',
       applyUrl: app ? formUrl(app) : next.url,
       resumeUrl: resume ? `${env.appUrl()}/api/agent/resume/${next.id}` : null,
     },

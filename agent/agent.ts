@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillAnswers, fillPage, type Answers, type OpenQuestion } from './fill';
+import { answersFor, fillAnswers, fillPage, type Answers, type JobType, type OpenQuestion } from './fill';
 import type { Page } from 'playwright';
 
 /** Keeps only scheme and host, so a pasted page URL (https://x.vercel.app/login) still works. */
@@ -137,7 +137,7 @@ const SESSION = createHash('sha256').update(`${Date.now()}-${Math.random()}`).di
 async function nextTask() {
   const r = await fetch(`${BASE}/api/agent/next?session=${SESSION}`, { headers: auth });
   if (!r.ok) throw new Error(`next: ${r.status}`);
-  return (await r.json()) as { task: null | { applicationId: number; company: string; title: string; applyUrl: string; resumeUrl: string | null }; paused?: boolean };
+  return (await r.json()) as { task: null | { applicationId: number; company: string; title: string; applyUrl: string; resumeUrl: string | null; jobType?: JobType }; paused?: boolean };
 }
 
 async function report(applicationId: number, status: 'prefilled' | 'failed', note: string, missing: string[] = []) {
@@ -219,7 +219,8 @@ async function main() {
             await applyBtn.first().click();
             await page.waitForTimeout(3000);
           }
-          const r = await fillPage(page, answers, resume);
+          const type: JobType = ['intern', 'parttime', 'fulltime'].includes(String(task.jobType)) ? task.jobType! : 'intern';
+          const r = await fillPage(page, answersFor(answers, type), resume);
           if (!r.filled.length && !r.resumeAttached) {
             await report(task.applicationId, 'failed', 'no form fields recognised (sign-in page or multi-step form?)');
           } else {

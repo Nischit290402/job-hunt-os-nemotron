@@ -22,6 +22,9 @@
   "previously_employed": "No",
   "relocate": "Yes",
   "over_18": "Yes",
-  "availability": "<e.g. May 2027 to August 2027>",
-  "work_basis": "Full-time"
+  "availability": "<used when no job-type version below is set>",
+  "availability_intern": "<e.g. May 2027 to December 2027>",
+  "availability_fulltime": "<e.g. December 2027 onwards>",
+  "work_basis": "Full-time",
+  "work_basis_parttime": "Part-time"
 }
