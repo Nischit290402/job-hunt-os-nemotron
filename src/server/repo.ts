@@ -279,6 +279,7 @@ export interface AppRow {
   title: string;
   url: string; // the official apply link when one was found, else the listing URL
   listing_url: string;
+  greenhouse_board: string | null; // the source's board token when the job came from a Greenhouse source
   apply_route: 'official' | 'email' | 'none' | null;
   apply_email: string | null;
   family: string;
@@ -290,8 +291,9 @@ export async function getApplication(sql: Sql, id: number): Promise<AppRow | nul
   const r = await sql<AppRow>`
     SELECT a.id, a.job_id, a.state, a.snooze_count, a.snooze_until::text AS snooze_until, a.picked_on::text AS picked_on,
            a.contact_id, a.referral_url, j.company, j.company_id, c.key AS company_key, j.title, COALESCE(j.apply_url, j.url) AS url,
-           j.url AS listing_url, j.apply_route, j.apply_email, j.family, j.track, j.jd_text
-    FROM applications a JOIN jobs j ON j.id = a.job_id JOIN companies c ON c.id = j.company_id
+           j.url AS listing_url, CASE WHEN s.type = 'greenhouse' THEN s.slug_or_url END AS greenhouse_board,
+           j.apply_route, j.apply_email, j.family, j.track, j.jd_text
+    FROM applications a JOIN jobs j ON j.id = a.job_id JOIN companies c ON c.id = j.company_id LEFT JOIN sources s ON s.id = j.source_id
     WHERE a.id = ${id} AND a.user_id = ${USER}`;
   return r[0] ?? null;
 }

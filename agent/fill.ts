@@ -32,6 +32,8 @@ export const RULES: { re: RegExp; key: string }[] = [
   { re: /pronoun/i, key: 'pronouns' },
   { re: /previously (worked|been employed)|former employee|worked (here|for us) before/i, key: 'previously_employed' },
   { re: /relocat/i, key: 'relocate' },
+  { re: /availability period|available (from|between|to start)|start and end (months|dates)|internship (period|duration|dates)/i, key: 'availability' },
+  { re: /full[- ]time or part[- ]time|(full|part)[- ]time basis/i, key: 'work_basis' },
   { re: /(18|eighteen) (years|or older)|over (the age of )?18|at least 18/i, key: 'over_18' },
 ];
 
@@ -78,6 +80,7 @@ async function labelOf(page: Scope, el: Locator): Promise<string> {
     const by = e.getAttribute('aria-labelledby');
     if (by) by.split(/\s+/).forEach((id) => parts.push(node.ownerDocument.getElementById(id)?.textContent || ''));
     parts.push(e.getAttribute('aria-label') || '', e.getAttribute('placeholder') || '', e.getAttribute('name') || '');
+    if (e.type === 'file') parts.push(e.id || ''); // "Attach" buttons: the id says resume or cover_letter
     if (!parts.join('').trim()) {
       const field = node.closest('.field, .form-group, .application-question, fieldset, li, div');
       if (field) parts.push((field.textContent || '').slice(0, 200));
@@ -97,14 +100,24 @@ export async function fillForm(page: Scope, answers: Answers, resumePath: string
 
   // Resume upload first: some ATS forms parse it and pre-fill other fields.
   if (resumePath) {
-    for (const input of await page.locator('input[type="file"]').all()) {
+    const files = await page.locator('input[type="file"]').all();
+    let target: Locator | null = null;
+    for (const input of files) {
       const label = (await labelOf(page, input)).toLowerCase();
-      if (/resume|cv|curriculum/.test(label) || (await page.locator('input[type="file"]').count()) === 1) {
-        await input.setInputFiles(resumePath);
-        report.resumeAttached = true;
-        await page.waitForTimeout(1500);
+      if (/cover/.test(label)) continue;
+      if (/resume|\bcv\b|curriculum/.test(label)) {
+        target = input;
         break;
       }
+    }
+    if (!target && files.length) {
+      const first = files[0];
+      if (!/cover/.test((await labelOf(page, first)).toLowerCase())) target = first;
+    }
+    if (target) {
+      await target.setInputFiles(resumePath);
+      report.resumeAttached = true;
+      await page.waitForTimeout(1500);
     }
   }
 
@@ -119,6 +132,7 @@ export async function fillForm(page: Scope, answers: Answers, resumePath: string
     const current = tag === 'select' ? await el.evaluate((n: Element) => (n as HTMLSelectElement).selectedIndex > 0) : (await el.inputValue().catch(() => '')) !== '';
     if (current) continue;
     const value = key ? answers[key] : undefined;
+    if (!label.replace(/[\s*]/g, '')) continue; // unlabeled helper inputs of custom dropdowns
     if (!value) {
       const clean = label.replace(/\s*\*\s*/g, ' ').trim();
       const prose = !key && (tag === 'textarea' || isProseQuestion(clean));
@@ -137,6 +151,10 @@ export async function fillForm(page: Scope, answers: Answers, resumePath: string
         await el.selectOption({ label: pick });
         report.filled.push(key!);
       } else if (required) report.missing.push(label.slice(0, 60));
+    } else if ((await el.getAttribute('role')) === 'combobox' || (await el.getAttribute('aria-autocomplete'))) {
+      // Type-ahead dropdowns clear typed text on blur unless a suggestion is picked.
+      if (await pickSuggestion(page, el, value)) report.filled.push(key!);
+      else if (required) report.missing.push(label.replace(/\s*\*\s*/g, ' ').trim().slice(0, 60));
     } else {
       await el.fill(value);
       report.filled.push(key!);
@@ -144,6 +162,25 @@ export async function fillForm(page: Scope, answers: Answers, resumePath: string
   }
   await fillChoices(page, answers, report);
   return report;
+}
+
+/** Types into a type-ahead, waits for suggestions and picks the one that matches. */
+async function pickSuggestion(page: Scope, el: Locator, value: string): Promise<boolean> {
+  await el.click();
+  await el.fill('');
+  await el.pressSequentially(value, { delay: 40 });
+  const opts = page.locator('[role=option]');
+  for (let i = 0; i < 10 && !(await opts.count()); i++) await page.waitForTimeout(300);
+  const exact = opts.filter({ hasText: new RegExp(`^\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') }).first();
+  const pick = (await exact.count()) ? exact : opts.filter({ hasText: value }).first();
+  if (!(await pick.count())) {
+    await el.press('Escape').catch(() => undefined);
+    await el.fill('').catch(() => undefined);
+    return false;
+  }
+  await pick.click();
+  await page.waitForTimeout(300);
+  return true;
 }
 
 /** Radio groups and single checkboxes answered from yes/no entries in your answer bank. Consent boxes are never ticked. */

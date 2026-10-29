@@ -21,5 +21,7 @@
   "pronouns": "",
   "previously_employed": "No",
   "relocate": "Yes",
-  "over_18": "Yes"
+  "over_18": "Yes",
+  "availability": "<e.g. May 2027 to August 2027>",
+  "work_basis": "Full-time"
 }

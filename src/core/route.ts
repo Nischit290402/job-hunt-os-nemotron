@@ -117,7 +117,7 @@ export const BOARD_APIS: { name: string; url: (slug: string) => string; parse: (
     parse: (b, slug) =>
       ((JSON.parse(b).jobs ?? []) as any[]).map((j) => ({
         title: String(j.title ?? ''),
-        url: j.id ? `https://job-boards.greenhouse.io/${slug}/jobs/${j.id}` : String(j.absolute_url ?? ''),
+        url: j.id ? greenhouseFormUrl(slug, String(j.id)) : String(j.absolute_url ?? ''),
         location: String(j.location?.name ?? ''),
       })),
   },
@@ -141,4 +141,20 @@ export function bestPosting(postings: Posting[], jobTitle: string): Posting | nu
     .filter((x) => x.s >= 0.75)
     .sort((a, b) => Number(b.sg) - Number(a.sg) || b.s - a.s);
   return scored[0]?.p ?? null;
+}
+
+/**
+ * Greenhouse's standalone application form. Company careers pages that show Greenhouse jobs (gh_jid=...) often render
+ * their own app with the form behind clicks or an iframe; this URL is the form itself, whatever the company redirects.
+ */
+export function greenhouseFormUrl(board: string, jobId: string): string {
+  return `https://job-boards.greenhouse.io/embed/job_app?for=${encodeURIComponent(board)}&token=${encodeURIComponent(jobId)}`;
+}
+
+/** The form URL for a Greenhouse job, given its board, when `url` is a gh_jid page or a hosted job page; else null. */
+export function greenhouseFormFor(url: string, board: string | null): string | null {
+  const m = url.match(/[?&]gh_jid=(\d+)/) || url.match(/greenhouse\.io\/([^/?#]+)\/jobs\/(\d+)/);
+  if (!m) return null;
+  if (m.length === 3) return greenhouseFormUrl(m[1], m[2]);
+  return board ? greenhouseFormUrl(board, m[1]) : null;
 }
