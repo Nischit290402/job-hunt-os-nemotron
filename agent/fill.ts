@@ -169,7 +169,9 @@ async function pickSuggestion(page: Scope, el: Locator, value: string): Promise<
   await el.click();
   await el.fill('');
   await el.pressSequentially(value, { delay: 40 });
-  const opts = page.locator('[role=option]');
+  // Only this field's visible suggestions (a phone field's hidden country list also uses role=option).
+  const owns = (await el.getAttribute('aria-controls')) || (await el.getAttribute('aria-owns'));
+  const opts = owns ? page.locator(`[id="${owns}"] [role=option]:visible`) : page.locator('[role=option]:visible');
   for (let i = 0; i < 10 && !(await opts.count()); i++) await page.waitForTimeout(300);
   const exact = opts.filter({ hasText: new RegExp(`^\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') }).first();
   const pick = (await exact.count()) ? exact : opts.filter({ hasText: value }).first();
@@ -178,7 +180,12 @@ async function pickSuggestion(page: Scope, el: Locator, value: string): Promise<
     await el.fill('').catch(() => undefined);
     return false;
   }
-  await pick.click();
+  try {
+    await pick.click({ timeout: 5000 });
+  } catch {
+    await el.press('Escape').catch(() => undefined);
+    return false;
+  }
   await page.waitForTimeout(300);
   return true;
 }
