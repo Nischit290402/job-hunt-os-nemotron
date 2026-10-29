@@ -35,7 +35,7 @@ export function titleOverlap(jobTitle: string, resultTitle: string): number {
 }
 
 /** 'ats' for a hiring-system page of this company, 'careers' for the company's own site, else null. */
-export function classifyResult(r: { url: string; title: string }, company: string, jobTitle: string): 'ats' | 'careers' | null {
+export function classifyResult(r: { url: string; title: string }, company: string, jobTitle: string): 'ats' | 'ats-check' | 'careers' | null {
   let host = '';
   let path = '';
   try {
@@ -46,22 +46,33 @@ export function classifyResult(r: { url: string; title: string }, company: strin
     return null;
   }
   if (NOT_OFFICIAL.test(host)) return null;
-  if (titleOverlap(jobTitle, r.title) < 0.6) return null;
   const co = slug(searchName(company));
   const coShort = co.slice(0, Math.max(5, Math.min(co.length, 8)));
   const mentions = slug(`${host}${path}${r.title}`).includes(coShort);
+  // Search engines often show hiring-system pages as "Back to jobs" or "Job Application": check the page itself then.
+  if (ATS_HOST.test(host) && mentions && titleOverlap(jobTitle, r.title) < 0.6) return 'ats-check';
+  if (titleOverlap(jobTitle, r.title) < 0.6) return null;
   if (ATS_HOST.test(host)) return mentions ? 'ats' : null;
   const hostHasCompany = slug(host).includes(coShort);
   if (hostHasCompany && /career|job|position|opening|vacanc|apply|join|hiring|recruit/.test(`${host}${path}`)) return 'careers';
   return null;
 }
 
-/** Best official link among search results: a hiring-system page first, then the careers site. */
-export function pickRoute(results: { url: string; title: string }[], company: string, jobTitle: string): string | null {
+/**
+ * Best official link among search results: a hiring-system page first, then the careers site. `confirm` checks a
+ * hiring-system page whose search title says nothing ("Back to jobs") by reading the page itself.
+ */
+export async function pickRoute(
+  results: { url: string; title: string }[],
+  company: string,
+  jobTitle: string,
+  confirm: (url: string) => Promise<boolean> = async () => false
+): Promise<string | null> {
   let careers: string | null = null;
   for (const r of results) {
     const k = classifyResult(r, company, jobTitle);
     if (k === 'ats') return r.url;
+    if (k === 'ats-check' && (await confirm(r.url))) return r.url;
     if (k === 'careers' && !careers) careers = r.url;
   }
   return careers;
@@ -80,4 +91,48 @@ export function extractApplyEmail(jd: string): string | null {
     if (/\b(cv|resume|résumé|apply|application|applications|send|email|submit|interested)\b/.test(around)) return email;
   }
   return null;
+}
+
+// ---------- public job-board APIs (exact, no search quota) ----------
+
+export interface Posting {
+  title: string;
+  url: string;
+  location: string;
+}
+
+/** Board names to try for a company: "MOTIONAL SINGAPORE PTE. LIMITED" -> motional; "Hudson River Trading" -> hudsonrivertrading, hudson-river-trading. */
+export function boardSlugs(company: string): string[] {
+  const name = searchName(company).toLowerCase();
+  const joined = name.replace(/[^a-z0-9]+/g, '');
+  const dashed = name.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return [...new Set([joined, dashed].filter((x) => x.length >= 2))].slice(0, 2);
+}
+
+export const BOARD_APIS: { name: string; url: (slug: string) => string; parse: (body: string, slug: string) => Posting[] }[] = [
+  {
+    name: 'greenhouse',
+    url: (s) => `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(s)}/jobs`,
+    parse: (b) => ((JSON.parse(b).jobs ?? []) as any[]).map((j) => ({ title: String(j.title ?? ''), url: String(j.absolute_url ?? ''), location: String(j.location?.name ?? '') })),
+  },
+  {
+    name: 'lever',
+    url: (s) => `https://api.lever.co/v0/postings/${encodeURIComponent(s)}?mode=json`,
+    parse: (b) => ((JSON.parse(b) ?? []) as any[]).map((j) => ({ title: String(j.text ?? ''), url: String(j.hostedUrl ?? ''), location: String(j.categories?.location ?? '') })),
+  },
+  {
+    name: 'ashby',
+    url: (s) => `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(s)}`,
+    parse: (b) => ((JSON.parse(b).jobs ?? []) as any[]).map((j) => ({ title: String(j.title ?? ''), url: String(j.jobUrl ?? ''), location: String(j.location ?? '') })),
+  },
+];
+
+/** The posting on a company board that is this job: close title match, Singapore preferred. */
+export function bestPosting(postings: Posting[], jobTitle: string): Posting | null {
+  const scored = postings
+    .filter((p) => /^https?:\/\//.test(p.url))
+    .map((p) => ({ p, s: Math.min(titleOverlap(jobTitle, p.title), titleOverlap(p.title, jobTitle)), sg: /singapore/i.test(p.location) }))
+    .filter((x) => x.s >= 0.75)
+    .sort((a, b) => Number(b.sg) - Number(a.sg) || b.s - a.s);
+  return scored[0]?.p ?? null;
 }

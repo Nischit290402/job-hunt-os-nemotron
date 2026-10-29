@@ -30,6 +30,9 @@ before(async () => {
       sent.push(String(init?.body ?? ''));
       return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
     }
+    if (u.startsWith('https://boards-api.greenhouse.io/v1/boards/grabtaxi/')) {
+      return new Response(JSON.stringify({ jobs: [{ title: 'AI Research Intern', absolute_url: 'https://grab.careers/jobs/77', location: { name: 'Singapore' } }] }));
+    }
     if (u.includes('api.search.brave.com')) {
       const q = decodeURIComponent(u);
       const results = q.includes('"Motional"')
@@ -52,7 +55,7 @@ after(() => {
 });
 
 async function mcfJob(company: string, title: string, jd: string, score: number) {
-  const { jobId } = await repo.upsertJob(sql, { company, title, location: 'Singapore', url: `https://www.mycareersfuture.gov.sg/job/${encodeURIComponent(title)}`, posted: TODAY, channel: 'SGP', jdText: jd } as any,
+  const { jobId } = await repo.upsertJob(sql, { company, title, location: 'Singapore', url: `https://www.mycareersfuture.gov.sg/job/${encodeURIComponent(company + '-' + title)}`, posted: TODAY, channel: 'SGP', jdText: jd } as any,
     { action: 'keep', track: 'sg', family: 'ml', startWindow: '', hoursFlag: '', eligFlag: '' }, 'sgp_mcf', TODAY);
   const j = await repo.getJob(sql, jobId);
   await repo.saveJudgment(sql, jobId, (await repo.jobToJudgeById(sql, jobId))!.jd_hash, { score, verdict: 'Apply this week', gates: {} as any, flags: [], notes: '', deadline: '' }, 'm', 'v2');
@@ -63,8 +66,11 @@ t('MyCareersFuture jobs: official page found, email kept, the rest hidden from T
   const a = await mcfJob('MOTIONAL SINGAPORE PTE. LIMITED', 'Machine Learning Intern, Behaviors Research', JD, 74);
   const b = await mcfJob('CYNAPSE PTE. LTD.', 'Machine Learning Engineer Intern', `${JD} Interested applicants please send your CV to careers@cynapse.ai.`, 70);
   const c = await mcfJob('NOWHERE PTE. LTD.', 'AI Research Intern', JD, 72);
+  const d = await mcfJob('GRABTAXI PTE. LTD.', 'AI Research Intern', JD, 71);
   const r = await resolveRoutes(sql);
-  assert.deepEqual({ official: r.official, email: r.email, none: r.none }, { official: 1, email: 1, none: 1 });
+  assert.deepEqual({ official: r.official, email: r.email, none: r.none }, { official: 2, email: 1, none: 1 });
+  const jd = await sql`SELECT apply_url FROM jobs WHERE id = ${d.jobId}`;
+  assert.equal(jd[0].apply_url, 'https://grab.careers/jobs/77', 'found on the company job board without any search');
   const ja = await sql`SELECT apply_route, apply_url FROM jobs WHERE id = ${a.jobId}`;
   assert.equal(ja[0].apply_route, 'official');
   assert.equal(ja[0].apply_url, 'https://job-boards.greenhouse.io/motional/jobs/123');

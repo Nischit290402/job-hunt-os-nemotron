@@ -287,10 +287,25 @@ test('routes: hiring-system page first, then careers site; job boards and other 
   assert.equal(classifyResult(site, co, title), 'careers');
   assert.equal(classifyResult(board, co, title), null);
   assert.equal(classifyResult(otherCo, co, title), null);
-  assert.equal(classifyResult(wrongRole, co, title), null);
-  assert.equal(pickRoute([board, site, gh], co, title), gh.url, 'hiring system preferred over careers site');
-  assert.equal(pickRoute([board, site], co, title), site.url);
-  assert.equal(pickRoute([board, otherCo], co, title), null);
+  assert.equal(classifyResult(wrongRole, co, title), 'ats-check', 'same company, other role: only the page check can rule it in');
+  assert.equal(await pickRoute([board, site, gh], co, title), gh.url, 'hiring system preferred over careers site');
+  assert.equal(await pickRoute([board, site], co, title), site.url);
+  assert.equal(await pickRoute([board, otherCo], co, title), null);
+  // Search engines show Greenhouse pages as "Back to jobs": the page itself is checked.
+  const generic = { url: 'https://job-boards.greenhouse.io/motional/jobs/6410602003', title: 'Back to jobs' };
+  assert.equal(classifyResult(generic, co, title), 'ats-check');
+  assert.equal(await pickRoute([board, generic], co, title, async () => true), generic.url);
+  assert.equal(await pickRoute([board, generic], co, title, async () => false), null);
+
+  const { bestPosting, boardSlugs } = await import('../src/core/route');
+  assert.deepEqual(boardSlugs(co), ['motional']);
+  assert.deepEqual(boardSlugs('Hudson River Trading'), ['hudsonrivertrading', 'hudson-river-trading']);
+  const posts = [
+    { title: 'Principal Engineer, Team Lead - Behaviors', url: 'https://motional.com/open-positions/?gh_jid=1', location: 'Boston' },
+    { title: 'Machine Learning Internship, Behaviors Research', url: 'https://motional.com/open-positions/?gh_jid=7600024003', location: 'Singapore, Central, Singapore' },
+  ];
+  assert.equal(bestPosting(posts, title)?.url, 'https://motional.com/open-positions/?gh_jid=7600024003');
+  assert.equal(bestPosting(posts, 'Data Scientist Intern'), null);
 
   assert.equal(extractApplyEmail('Interested candidates, please send your CV to hr@cynapse.ai by 30 Nov.'), 'hr@cynapse.ai');
   assert.equal(extractApplyEmail('We handle data under PDPA. Contact dpo@cynapse.ai for privacy requests.'), null);
