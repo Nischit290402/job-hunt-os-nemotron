@@ -107,23 +107,54 @@ export function normalizeDraft(raw: unknown, limits: OutreachLimits = DEFAULT_LI
 }
 
 /** RFC 2822 message, base64url-encoded, as the Gmail API's users.messages.send expects in `raw`. */
-export function buildRawEmail(m: { from: string; to: string; subject: string; body: string; inReplyTo?: string; references?: string }): string {
+export interface Attachment {
+  filename: string;
+  mimeType: string;
+  base64: string;
+}
+
+export function buildRawEmail(m: { from: string; to: string; subject: string; body: string; inReplyTo?: string; references?: string; attachment?: Attachment }): string {
   const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
-  const headers = [
-    `From: ${m.from}`,
-    `To: ${m.to}`,
-    `Subject: =?UTF-8?B?${b64(m.subject)}?=`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-  ];
+  const boundary = `jh_${Buffer.from(m.subject + m.to).toString('hex').slice(0, 24)}`;
+  const headers = [`From: ${m.from}`, `To: ${m.to}`, `Subject: =?UTF-8?B?${b64(m.subject)}?=`, 'MIME-Version: 1.0'];
+  if (m.attachment) headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+  else headers.push('Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64');
   if (m.inReplyTo) headers.push(`In-Reply-To: ${m.inReplyTo}`);
   if (m.references) headers.push(`References: ${m.references}`);
   for (const h of headers) if (/[\r\n]/.test(h.replace(/^[^:]+: /, ''))) throw new Error('header injection blocked');
-  const body = b64(m.body).replace(/.{76}/g, '$&\r\n');
-  return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8').toString('base64url');
+  const wrap = (x: string) => x.replace(/.{76}/g, '$&\r\n');
+  const body = wrap(b64(m.body));
+  if (!m.attachment) return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8').toString('base64url');
+  const a = m.attachment;
+  if (/[\r\n"]/.test(a.filename) || /[\r\n]/.test(a.mimeType)) throw new Error('header injection blocked');
+  const parts = [
+    `--${boundary}`, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', body,
+    `--${boundary}`, `Content-Type: ${a.mimeType}; name="${a.filename}"`, `Content-Disposition: attachment; filename="${a.filename}"`,
+    'Content-Transfer-Encoding: base64', '', wrap(a.base64.replace(/\s+/g, '')),
+    `--${boundary}--`, '',
+  ];
+  return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`, 'utf8').toString('base64url');
 }
 
 export function followUpBody(contactFirstName: string, role: string): string {
   return `Hi ${contactFirstName},\n\nA short follow-up on my note about the ${role} role. If a referral is not possible, no problem at all, and thanks for reading.\n\nNischit`;
+}
+
+/** Plain application email for "send your CV to ..." postings. You review and send it from Gmail drafts. */
+export function applicationEmail(role: string, company: string, summary: string, name = 'Nischit Hosamani'): { subject: string; body: string } {
+  return {
+    subject: `Application: ${role} (${name})`,
+    body: [
+      `Dear ${company} Hiring Team,`,
+      '',
+      `I would like to apply for the ${role} position. My resume is attached.`,
+      '',
+      summary.trim(),
+      '',
+      'I would welcome the chance to discuss how I can contribute. Thank you for your time.',
+      '',
+      'Best regards,',
+      name,
+    ].join('\n'),
+  };
 }

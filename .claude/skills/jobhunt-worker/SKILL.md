@@ -22,7 +22,7 @@ Run every command from the repository root. `JOBHUNT_URL` and `WORKER_TOKEN` are
 ## The loop
 
 1. `node worker/cli.mjs claim 5`. If it prints "Queue empty", go to step 5.
-2. Handle the claimed tasks by kind, in the order printed (coach, tailor, draft, then judge).
+2. Handle the claimed tasks by kind, in the order printed (coach, answers, tailor, draft, then judge).
 3. If a task cannot be done properly, run `node worker/cli.mjs fail <id> <short reason>`. Never post a guess.
 4. Go back to step 1.
 5. `node worker/cli.mjs idle`, then stop. Give a one-paragraph summary: counts per kind, anything failed and why.
@@ -48,6 +48,21 @@ Judge each posting on its own text. Do not reuse a score from another job at the
    Follow the instructions' two-track rule (engineer vs recruiter) and every length limit. Plain, specific wording,
    no em dashes, no emojis, no flattery. Only facts from the candidate summary.
 3. `node worker/cli.mjs answer <id> .work/<id>.draft.json`.
+
+## answers (open questions on an application form)
+
+Nischit's laptop agent has an application form open and is waiting for these. Be quick and careful: he reads every answer
+in the form before he clicks Submit.
+
+1. `node worker/cli.mjs show <id>` for the company, role, the questions (with ids q1, q2, ... and any max length) and the JD.
+2. `node worker/cli.mjs kit`, then read `.work/kit/vault_master.md`. It is the only source of facts.
+3. For each question write an answer in first person, plain and specific, in Nischit's voice: one concrete proof point
+   from the master that fits this company and role, no filler ("passionate", "team player"), no em dashes, no flattery
+   of the company. Respect the max length; without one, 120 to 180 words. Never invent a fact, number or experience.
+4. Leave the text empty (`""`) for: expected salary, notice period, visa or work authorisation, legal or background
+   declarations, references, how he heard about the role, and anything the master cannot answer truthfully. He fills those.
+5. Write `.work/<id>.answers.json` = `{"answers": [{"qid": "q1", "text": "..."}, ...]}` (one entry per question), then
+   `node worker/cli.mjs answer <id> .work/<id>.answers.json`.
 
 ## coach
 

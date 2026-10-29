@@ -11,7 +11,8 @@ export async function GET(req: Request) {
   if (!agentAuthorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const sql = await getSql();
   if (await repo.isPaused(sql)) return NextResponse.json({ task: null, paused: true });
-  const rows = await repo.appsInStates(sql, ['ready_to_fill']);
+  // Email-route applications have no form: they go to Gmail drafts from the Telegram card instead.
+  const rows = (await repo.appsInStates(sql, ['ready_to_fill'])).filter((r) => r.apply_route !== 'email');
   const attempted = (await repo.kvGet<Record<string, string>>(sql, 'agent_attempts')) ?? {};
   const next = [...rows].reverse().find((r) => !attempted[String(r.id)]);
   if (!next) return NextResponse.json({ task: null });

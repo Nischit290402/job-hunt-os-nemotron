@@ -8,6 +8,7 @@ import * as tg from './telegram';
 import { env, features } from './env';
 import { fire, queueDraft, queueTailor } from './worker';
 import { leadContactKey } from './lead';
+import { resolveRoutes } from './route';
 import { companyDomain, findEmail } from './search';
 import { splitName } from '../core/contacts';
 import { findContact } from './contacts';
@@ -42,6 +43,9 @@ export async function buildToday(sql: Sql, today: string) {
   const current = await repo.appsInStates(sql, ['today']);
   const due = await repo.dueSnoozedIds(sql, today);
   const slots = Math.max(0, TODAY_MAX - current.length);
+  // MyCareersFuture and aggregator jobs: find the employer's own posting (or an apply email) first; hide the rest.
+  const routes = await resolveRoutes(sql);
+  if (routes.checked) await repo.recordRun(sql, { step: 'routes', seconds: 0, ok: !routes.note, error: routes.note || null, detail: routes });
   const picks = pickToday(await repo.rankCandidates(sql), await repo.employerInfo(sql), { today, max: TODAY_MAX, jobTypes: await repo.jobTypes(sql) })
     .filter((p) => !current.some((c) => c.job_id === p.jobId))
     .filter((p) => !current.some((c) => c.company === p.company));
@@ -60,6 +64,8 @@ export async function briefData(sql: Sql, today: string): Promise<BriefData> {
       applicationId: r.id, jobId: r.job_id, company: r.company, title: r.title, score: Number(r.score ?? 0), verdict: r.verdict ?? '',
       family: r.family, notes: r.notes ?? '', flags: r.flags ?? [], deadline: r.deadline ?? '', contact: names[0] ?? null,
       daysWaiting: daysBetween(r.picked_on, today),
+      applyNote: r.apply_route === 'email' ? `Apply by email to ${r.apply_email} (your tailored resume gets attached to a Gmail draft).`
+        : r.apply_route === 'official' ? 'Apply link: the employer\'s own posting (found for you).' : undefined,
     });
   }
   const approvals: ApprovalItem[] = [];
@@ -70,7 +76,7 @@ export async function briefData(sql: Sql, today: string): Promise<BriefData> {
   const ready: ReadyItem[] = [];
   for (const r of await repo.appsInStates(sql, ['ready_to_fill', 'prefilled'])) {
     const app = await repo.getApplication(sql, r.id);
-    ready.push({ applicationId: r.id, company: r.company, title: r.title, state: r.state as ReadyItem['state'], applyUrl: app?.referral_url || r.url });
+    ready.push({ applicationId: r.id, company: r.company, title: r.title, state: r.state as ReadyItem['state'], applyUrl: app?.referral_url || r.url, applyEmail: r.apply_route === 'email' ? r.apply_email : null });
   }
   return {
     date: today, dashboardUrl: env.appUrl(), today: items, approvals, ready,
@@ -186,14 +192,14 @@ export async function afterWait(sql: Sql, appId: number, replied: boolean) {
 export async function queueFill(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || app.state !== 'ready_to_fill') return { skipped: true };
-  await tg.send(await readyCard({ applicationId: appId, company: app.company, title: app.title, state: 'ready_to_fill', applyUrl: app.referral_url || app.url }, tg.signer));
+  await tg.send(await readyCard({ applicationId: appId, company: app.company, title: app.title, state: 'ready_to_fill', applyUrl: app.referral_url || app.url, applyEmail: app.apply_route === 'email' ? app.apply_email : null }, tg.signer));
   return { ok: true };
 }
 
 export async function remindSubmit(sql: Sql, appId: number) {
   const app = await repo.getApplication(sql, appId);
   if (!app || !['ready_to_fill', 'prefilled'].includes(app.state)) return { skipped: true };
-  await tg.send(await readyCard({ applicationId: appId, company: app.company, title: app.title, state: app.state as ReadyItem['state'], applyUrl: app.referral_url || app.url }, tg.signer));
+  await tg.send(await readyCard({ applicationId: appId, company: app.company, title: app.title, state: app.state as ReadyItem['state'], applyUrl: app.referral_url || app.url, applyEmail: app.apply_route === 'email' ? app.apply_email : null }, tg.signer));
   return { reminded: true };
 }
 

@@ -18,6 +18,8 @@ export interface Candidate {
   title: string;
   track: 'sg' | 'remote' | 'ft' | 'archive';
   hoursFlag?: string | null;
+  /** 'none': only on MyCareersFuture or an aggregator, with no official page or apply email. Hidden. */
+  applyRoute?: 'official' | 'email' | 'none' | null;
   score: number;
   verdict: 'Apply now' | 'Apply this week' | 'Watch' | 'Skip';
   deadline: string; // 'YYYY-MM-DD' | 'rolling' | ''
@@ -72,7 +74,7 @@ export function freshBonus(posted: string, firstSeen: string, today: string): nu
 
 export function scoreCandidate(c: Candidate, emp: EmployerInfo | undefined, opts: RankOptions): Ranked | null {
   const minScore = opts.minScore ?? 55;
-  if (c.track === 'archive') return null;
+  if (c.track === 'archive' || c.applyRoute === 'none') return null;
   if (!(opts.jobTypes ?? DEFAULT_JOB_TYPES).includes(jobTypeOf(c.track, c.hoursFlag))) return null;
   if (c.verdict === 'Skip' || c.score < minScore) return null;
   if (c.appState && !(c.appState === 'snoozed' && c.snoozeUntil && c.snoozeUntil <= opts.today) && c.appState !== 'today') {

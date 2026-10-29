@@ -272,3 +272,48 @@ test('job types: part-time is its own category, full-time stays out of Today unt
   assert.equal(verdictFor(85, gates as any, '', 'ft', '2026-10-29'), 'Watch');
   assert.equal(verdictFor(85, gates as any, '', 'ft', '2026-10-29', true), 'Apply now');
 });
+
+test('routes: hiring-system page first, then careers site; job boards and other companies never count', async () => {
+  const { classifyResult, pickRoute, extractApplyEmail, routeQueries } = await import('../src/core/route');
+  const co = 'MOTIONAL SINGAPORE PTE. LIMITED';
+  const title = 'Machine Learning Intern, Behaviors Research';
+  assert.match(routeQueries(co, title)[0], /^"Motional" "Machine Learning Intern, Behaviors Research" \(site:greenhouse\.io/);
+  const gh = { url: 'https://job-boards.greenhouse.io/motional/jobs/123', title: 'Job Application for Machine Learning Internship, Behaviors Research at Motional' };
+  const site = { url: 'https://motional.com/careers/open-positions/ml-intern', title: 'Machine Learning Internship, Behaviors Research | Motional' };
+  const board = { url: 'https://builtinsingapore.com/job/machine-learning-internship-behaviors-research/4217973', title: 'Machine Learning Internship, Behaviors Research - Motional' };
+  const otherCo = { url: 'https://job-boards.greenhouse.io/waymo/jobs/9', title: 'Machine Learning Intern, Behaviors Research' };
+  const wrongRole = { url: 'https://job-boards.greenhouse.io/motional/jobs/5', title: 'Senior Software Engineer, Mapping at Motional' };
+  assert.equal(classifyResult(gh, co, title), 'ats');
+  assert.equal(classifyResult(site, co, title), 'careers');
+  assert.equal(classifyResult(board, co, title), null);
+  assert.equal(classifyResult(otherCo, co, title), null);
+  assert.equal(classifyResult(wrongRole, co, title), null);
+  assert.equal(pickRoute([board, site, gh], co, title), gh.url, 'hiring system preferred over careers site');
+  assert.equal(pickRoute([board, site], co, title), site.url);
+  assert.equal(pickRoute([board, otherCo], co, title), null);
+
+  assert.equal(extractApplyEmail('Interested candidates, please send your CV to hr@cynapse.ai by 30 Nov.'), 'hr@cynapse.ai');
+  assert.equal(extractApplyEmail('We handle data under PDPA. Contact dpo@cynapse.ai for privacy requests.'), null);
+  assert.equal(extractApplyEmail('Apply on our site. Questions: noreply@x.com'), null);
+});
+
+test('email with attachment: multipart with the PDF, header injection still blocked', async () => {
+  const { buildRawEmail, applicationEmail } = await import('../src/core/outreach');
+  const pdf = Buffer.from('%PDF-1.4 test').toString('base64');
+  const m = applicationEmail('ML Intern', 'Cynapse', 'MSc AI at NTU; WACV 2025 paper.');
+  assert.match(m.subject, /Application: ML Intern \(Nischit Hosamani\)/);
+  const raw = Buffer.from(buildRawEmail({ from: 'a@b.com', to: 'hr@cynapse.ai', subject: m.subject, body: m.body, attachment: { filename: 'cv.pdf', mimeType: 'application/pdf', base64: pdf } }), 'base64url').toString('utf8');
+  assert.match(raw, /multipart\/mixed; boundary="jh_/);
+  assert.match(raw, /Content-Disposition: attachment; filename="cv.pdf"/);
+  assert.ok(raw.includes(pdf));
+  assert.throws(() => buildRawEmail({ from: 'a@b.com', to: 'x@y.com', subject: 's', body: 'b', attachment: { filename: 'a"\r\nBcc: z@z.com', mimeType: 'application/pdf', base64: pdf } }), /injection/);
+});
+
+test('answers: questions from the agent are cleaned, results checked', async () => {
+  const { cleanQuestions, resultError } = await import('../src/core/worker');
+  assert.deepEqual(cleanQuestions([{ qid: 'q1', label: ' Why   us? ', maxLength: 500, required: true }]), [{ qid: 'q1', label: 'Why us?', maxLength: 500, required: true }]);
+  assert.equal(cleanQuestions([{ qid: 'x; drop', label: 'a' }]), null);
+  assert.equal(cleanQuestions([]), null);
+  assert.equal(resultError('answers', { output: { answers: [{ qid: 'q1', text: 'Because...' }] } }), null);
+  assert.match(resultError('answers', { output: { answers: 'nope' } })!, /answers/);
+});

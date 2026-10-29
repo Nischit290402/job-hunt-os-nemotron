@@ -4,7 +4,7 @@
  * skills and posts results back. Pure helpers only; the queries live in server/repo.ts.
  */
 
-export const TASK_KINDS = ['coach', 'tailor', 'draft', 'judge'] as const; // claim order: the person waiting comes first
+export const TASK_KINDS = ['coach', 'answers', 'tailor', 'draft', 'judge'] as const; // claim order: the person waiting comes first
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const CLAIM_TTL_MIN = 20; // a claim older than this is treated as abandoned and handed out again
@@ -47,6 +47,11 @@ export function resultError(kind: TaskKind, r: unknown): string | null {
     case 'judge':
     case 'draft':
       return o.output && typeof o.output === 'object' ? null : 'expected {"output": {...matching the schema}}';
+    case 'answers': {
+      const a = (o.output as { answers?: unknown })?.answers;
+      if (!Array.isArray(a)) return 'expected {"output": {"answers": [{"qid": "q1", "text": "..."}]}}';
+      return a.every((x) => x && typeof x.qid === 'string' && typeof x.text === 'string') ? null : 'each answer needs qid and text';
+    }
     case 'coach':
       return typeof o.text === 'string' && o.text.trim() ? null : 'expected {"text": "..."}';
     case 'tailor': {
@@ -77,4 +82,42 @@ export function fireText(reason: string, queued: Record<string, number>): string
     .filter(([, n]) => n > 0)
     .map(([k, n]) => `${n} ${k}`);
   return `Job Hunt OS: ${reason}. Queued: ${parts.join(', ') || 'nothing'}.`;
+}
+
+/** Schema for drafted application answers. An empty text means "leave this one for Nischit". */
+export const ANSWERS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answers'],
+  properties: {
+    answers: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['qid', 'text'],
+        properties: { qid: { type: 'string' }, text: { type: 'string', maxLength: 3000 } },
+      },
+    },
+  },
+} as const;
+
+export interface OpenQuestionIn {
+  qid: string;
+  label: string;
+  maxLength: number | null;
+  required: boolean;
+}
+
+/** Validates what the laptop agent sends. Returns clean questions or null. */
+export function cleanQuestions(q: unknown): OpenQuestionIn[] | null {
+  if (!Array.isArray(q) || !q.length) return null;
+  const out = q.slice(0, 8).map((x: any) => ({
+    qid: String(x?.qid ?? '').slice(0, 8),
+    label: String(x?.label ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
+    maxLength: Number.isInteger(x?.maxLength) && x.maxLength > 0 ? Math.min(x.maxLength, 5000) : null,
+    required: x?.required === true,
+  }));
+  return out.every((x) => /^q\d{1,2}$/.test(x.qid) && x.label) ? out : null;
 }

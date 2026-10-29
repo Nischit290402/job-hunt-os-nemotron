@@ -23,7 +23,8 @@ import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillForm, type Answers } from './fill';
+import { fillAnswers, fillForm, type Answers, type OpenQuestion } from './fill';
+import type { Page } from 'playwright';
 
 /** Keeps only scheme and host, so a pasted page URL (https://x.vercel.app/login) still works. */
 function originOf(u: string): string {
@@ -141,6 +142,43 @@ async function report(applicationId: number, status: 'prefilled' | 'failed', not
   await fetch(`${BASE}/api/agent/report`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ applicationId, status, note, missing }) });
 }
 
+/** Forms waiting for Claude's drafted answers to their prose questions. The tab stays open until they arrive. */
+const waitingAnswers = new Map<number, { page: Page; since: number; company: string }>();
+const ANSWER_WAIT_MS = 30 * 60_000;
+
+async function askForAnswers(applicationId: number, questions: OpenQuestion[]) {
+  const r = await fetch(`${BASE}/api/agent/questions`, {
+    method: 'POST',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify({ applicationId, questions }),
+  });
+  if (!r.ok) throw new Error(`questions: ${r.status}`);
+}
+
+/** Types in any drafted answers that have arrived. Never throws. */
+async function collectAnswers() {
+  for (const [appId, w] of waitingAnswers) {
+    try {
+      if (w.page.isClosed() || Date.now() - w.since > ANSWER_WAIT_MS) {
+        waitingAnswers.delete(appId);
+        continue;
+      }
+      const r = await fetch(`${BASE}/api/agent/answers/${appId}`, { headers: auth });
+      if (!r.ok) continue;
+      const d = (await r.json()) as { status: 'pending' | 'ready' | 'failed'; answers?: { qid: string; text: string }[] };
+      if (d.status === 'pending') continue;
+      waitingAnswers.delete(appId);
+      if (d.status === 'ready' && d.answers) {
+        const n = await fillAnswers(w.page, d.answers);
+        console.log(`Typed ${n} drafted answer(s) into the ${w.company} form. Review them before you click Submit.`);
+        await w.page.bringToFront();
+      }
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+    }
+  }
+}
+
 async function downloadResume(url: string): Promise<string> {
   const r = await fetch(url, { headers: auth });
   if (!r.ok) throw new Error(`resume download ${r.status}`);
@@ -160,6 +198,7 @@ async function main() {
   for (;;) {
     await syncMaster();
     await laptopFallback();
+    await collectAnswers();
     try {
       const { task, paused } = await nextTask();
       if (paused) console.log('Paused from Telegram; waiting.');
@@ -181,6 +220,11 @@ async function main() {
             await report(task.applicationId, 'failed', 'no form fields recognised (sign-in page or multi-step form?)');
           } else {
             await report(task.applicationId, 'prefilled', `filled ${r.filled.length} fields${r.resumeAttached ? ', resume attached' : ''}`, r.missing);
+            if (r.questions.length) {
+              await askForAnswers(task.applicationId, r.questions);
+              waitingAnswers.set(task.applicationId, { page, since: Date.now(), company: task.company });
+              console.log(`Asked Claude to draft ${r.questions.length} answer(s) for ${task.company}; they will be typed in when ready.`);
+            }
           }
           await page.bringToFront();
         } catch (e) {
@@ -191,7 +235,7 @@ async function main() {
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
     }
-    await new Promise((r) => setTimeout(r, POLL_MS));
+    await new Promise((r) => setTimeout(r, waitingAnswers.size ? 20_000 : POLL_MS));
   }
 }
 

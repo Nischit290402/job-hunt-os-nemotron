@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fillForm, keyFor } from './fill';
+import { fillAnswers, fillForm, keyFor } from './fill';
 
 const answers = {
   first_name: 'Nischit', last_name: 'Hosamani', full_name: 'Nischit Hosamani', email: 'me@example.com', phone: '+65 0000 0000',
@@ -52,13 +52,61 @@ test('fills a Greenhouse-style form, attaches the resume, keeps existing values,
     assert.deepEqual(r.filled.sort(), ['email', 'first_name', 'last_name', 'linkedin', 'needs_sponsorship']);
     assert.equal(await page.inputValue('#phone'), '+1 prefilled');
     assert.equal(await page.inputValue('#captcha'), '');
-    assert.ok(r.missing.some((m) => /why do you want/i.test(m)));
+    assert.ok(r.questions.some((q) => /why do you want/i.test(q.label)), 'prose question goes to Claude for a draft');
     assert.equal(await page.evaluate(() => (window as any).__submitted ?? false), false);
 
     await page.setContent(LEVER);
     const r2 = await fillForm(page, { ...answers, city: 'Singapore' }, null);
     assert.deepEqual(r2.filled.sort(), ['city', 'email', 'full_name', 'github']);
     assert.equal(await page.evaluate(() => (window as any).__submitted ?? false), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+const CHOICES = `<form>
+  <fieldset><legend>Will you now or in the future require sponsorship? *</legend>
+    <label><input type="radio" name="spons" value="yes" required> Yes</label>
+    <label><input type="radio" name="spons" value="no"> No</label></fieldset>
+  <fieldset><legend>Are you at least 18 years of age?</legend>
+    <label><input type="radio" name="age" value="1"> Yes</label>
+    <label><input type="radio" name="age" value="0"> No</label></fieldset>
+  <fieldset><legend>What is your favourite colour?</legend>
+    <label><input type="radio" name="colour" value="r"> Red</label></fieldset>
+  <label><input type="checkbox" id="reloc"> I am willing to relocate</label>
+  <label><input type="checkbox" id="terms"> I agree to the privacy policy and terms</label>
+  <label><input type="checkbox" id="news"> Send me marketing emails</label>
+  <div class="field"><label for="why">Why do you want to work at Motional? *</label><textarea id="why" maxlength="800" required></textarea></div>
+  <div class="field"><label for="extra">Anything else you would like us to know?</label><input id="extra"></div>
+  <div class="field"><label for="salary">Expected salary?</label><input id="salary"></div>
+</form>`;
+
+test('radio and checkbox answers from the bank; consent and marketing boxes stay unticked; prose questions captured', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent(CHOICES);
+    const r = await fillForm(page, { ...answers, needs_sponsorship: 'No', over_18: 'Yes', relocate: 'Yes' }, null);
+    assert.equal(await page.isChecked('input[name=spons][value=no]'), true);
+    assert.equal(await page.isChecked('input[name=spons][value=yes]'), false);
+    assert.equal(await page.isChecked('input[name=age][value="1"]'), true);
+    assert.equal(await page.isChecked('input[name=colour]'), false);
+    assert.equal(await page.isChecked('#reloc'), true);
+    assert.equal(await page.isChecked('#terms'), false, 'consent never ticked');
+    assert.equal(await page.isChecked('#news'), false, 'marketing never ticked');
+    const labels = r.questions.map((q) => q.label);
+    assert.ok(labels.some((l) => /Why do you want to work at Motional/.test(l)));
+    assert.ok(labels.some((l) => /Anything else/.test(l)));
+    const why = r.questions.find((q) => /Why do you want/.test(q.label))!;
+    assert.equal(why.maxLength, 800);
+    assert.equal(why.required, true);
+
+    const n = await fillAnswers(page, [{ qid: why.qid, text: 'Because of the behaviours research team.' }, { qid: 'q9', text: 'x' }]);
+    assert.equal(n, 1);
+    assert.equal(await page.inputValue('#why'), 'Because of the behaviours research team.');
+    await page.fill('#extra', 'typed by me');
+    const extra = r.questions.find((q) => /Anything else/.test(q.label))!;
+    assert.equal(await fillAnswers(page, [{ qid: extra.qid, text: 'draft' }]), 0, 'never overwrites what you typed');
   } finally {
     await browser.close();
   }

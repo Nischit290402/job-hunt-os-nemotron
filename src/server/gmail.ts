@@ -4,7 +4,7 @@
  * The refresh token comes from a one-time consent run (scripts/gmail-auth.ts).
  */
 import { env } from './env';
-import { buildRawEmail } from '../core/outreach';
+import { buildRawEmail, type Attachment } from '../core/outreach';
 
 export const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.metadata'];
 
@@ -29,8 +29,8 @@ async function accessToken(): Promise<string> {
 }
 
 /** Saves the email to your Gmail drafts. Nothing is sent: this app has no code path that calls drafts.send or messages.send. */
-export async function createGmailDraft(m: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string }): Promise<{ draftId: string; id: string; threadId: string }> {
-  const raw = buildRawEmail({ from: env.gmailFrom(), to: m.to, subject: m.subject, body: m.body, inReplyTo: m.inReplyTo, references: m.inReplyTo });
+export async function createGmailDraft(m: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string; attachment?: Attachment }): Promise<{ draftId: string; id: string; threadId: string }> {
+  const raw = buildRawEmail({ from: env.gmailFrom(), to: m.to, subject: m.subject, body: m.body, inReplyTo: m.inReplyTo, references: m.inReplyTo, attachment: m.attachment });
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
     method: 'POST',
     headers: { authorization: `Bearer ${await accessToken()}`, 'content-type': 'application/json' },

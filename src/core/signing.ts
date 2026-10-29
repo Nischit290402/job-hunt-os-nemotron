@@ -43,6 +43,7 @@ export const ACTIONS = {
   sb: 'submitted',
   nn: 'notnow',
   jd: 'jd',
+  ae: 'emailapply', // save the application email (resume attached) to Gmail drafts
 } as const;
 export type ActionCode = keyof typeof ACTIONS;
 export type Action = (typeof ACTIONS)[ActionCode];

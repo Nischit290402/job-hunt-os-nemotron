@@ -5,6 +5,10 @@
 import type { Sql } from './sql';
 import * as repo from './repo';
 import { sendDraft } from './outreach';
+import { createGmailDraft } from './gmail';
+import { features } from './env';
+import { applicationEmail } from '../core/outreach';
+import { searchName } from '../core/contacts';
 import { emit, EV } from '../inngest/client';
 import { addDays } from '../core/time';
 import { SKIP_REASONS, type Action } from '../core/signing';
@@ -85,6 +89,26 @@ export async function handleAction(sql: Sql, action: Action, appId: number, toda
         await repo.applyEvent(sql, appId, 'submitted', 'you', { appliedAt: today });
         await emit(EV.submitted, { applicationId: appId });
         return { text: `Marked ${label} as applied on ${today}.` };
+      }
+      case 'emailapply': {
+        if (app.apply_route !== 'email' || !app.apply_email) return { text: `${label} does not take applications by email.` };
+        if (!features.gmail()) return { text: `Gmail is not connected. Email ${escapeHtml(app.apply_email)} yourself with the resume PDF from this chat.`, keepButtons: true };
+        if ((await repo.doNotContactSet(sql)).has(app.apply_email.toLowerCase())) return { text: `${escapeHtml(app.apply_email)} is on your do-not-contact list.` };
+        const resume = await repo.latestResume(sql, appId);
+        if (!resume) return { text: `No tailored resume yet for ${label}. Send /tailor ${appId} first.`, keepButtons: true };
+        const profile = await repo.getProfile(sql);
+        const m = applicationEmail(app.title, searchName(app.company), profile.outreach_summary || '');
+        const file = `Nischit_Hosamani_${searchName(app.company).replace(/[^A-Za-z0-9]+/g, '_')}_Resume.pdf`;
+        try {
+          await createGmailDraft({ to: app.apply_email, subject: m.subject, body: m.body, attachment: { filename: file, mimeType: 'application/pdf', base64: resume.pdf_base64 } });
+        } catch (e) {
+          return { text: `Not saved: ${escapeHtml(e instanceof Error ? e.message : String(e))}.`, keepButtons: true };
+        }
+        await repo.logEvent(sql, 'application', appId, 'email_apply.drafted', 'you', { to: app.apply_email });
+        return {
+          text: `Saved to your Gmail drafts: application to ${escapeHtml(app.apply_email)} with ${escapeHtml(file)} attached. Review and send it from Gmail (https://mail.google.com/mail/u/0/#drafts), then tap I submitted it.`,
+          keyboard: [[{ text: 'I submitted it', callback_data: await tg.signer('sb', appId) }]],
+        };
       }
       case 'notnow':
         return { text: `Okay. ${label} stays in the queue and comes back in the next brief.` };

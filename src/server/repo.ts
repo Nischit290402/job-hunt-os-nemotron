@@ -239,7 +239,7 @@ export async function getJob(sql: Sql, jobId: number) {
 
 export async function rankCandidates(sql: Sql): Promise<Candidate[]> {
   const rows = await sql`
-    SELECT j.id AS "jobId", c.key AS "companyKey", j.company, j.title, j.track, j.hours_flag AS "hoursFlag", lj.score, lj.verdict, lj.deadline,
+    SELECT j.id AS "jobId", c.key AS "companyKey", j.company, j.title, j.track, j.hours_flag AS "hoursFlag", j.apply_route AS "applyRoute", lj.score, lj.verdict, lj.deadline,
            COALESCE(j.posted::text, '') AS posted, j.first_seen::text AS "firstSeen",
            a.state AS "appState", a.snooze_until::text AS "snoozeUntil"
     FROM jobs j JOIN companies c ON c.id = j.company_id
@@ -277,7 +277,10 @@ export interface AppRow {
   company_id: number;
   company_key: string;
   title: string;
-  url: string;
+  url: string; // the official apply link when one was found, else the listing URL
+  listing_url: string;
+  apply_route: 'official' | 'email' | 'none' | null;
+  apply_email: string | null;
   family: string;
   track: string;
   jd_text: string;
@@ -286,7 +289,8 @@ export interface AppRow {
 export async function getApplication(sql: Sql, id: number): Promise<AppRow | null> {
   const r = await sql<AppRow>`
     SELECT a.id, a.job_id, a.state, a.snooze_count, a.snooze_until::text AS snooze_until, a.picked_on::text AS picked_on,
-           a.contact_id, a.referral_url, j.company, j.company_id, c.key AS company_key, j.title, j.url, j.family, j.track, j.jd_text
+           a.contact_id, a.referral_url, j.company, j.company_id, c.key AS company_key, j.title, COALESCE(j.apply_url, j.url) AS url,
+           j.url AS listing_url, j.apply_route, j.apply_email, j.family, j.track, j.jd_text
     FROM applications a JOIN jobs j ON j.id = a.job_id JOIN companies c ON c.id = j.company_id
     WHERE a.id = ${id} AND a.user_id = ${USER}`;
   return r[0] ?? null;
@@ -364,13 +368,15 @@ export interface AppListRow {
   notes: string | null;
   flags: string[] | null;
   deadline: string | null;
+  apply_route: 'official' | 'email' | 'none' | null;
+  apply_email: string | null;
 }
 
 export async function appsInStates(sql: Sql, states: AppState[]): Promise<AppListRow[]> {
   return sql<AppListRow>`
     SELECT a.id, a.job_id, a.state, a.picked_on::text AS picked_on, a.snooze_until::text AS snooze_until, a.updated_at::text AS updated_at,
-           a.skip_reason, a.applied_at::text AS applied_at, j.company, j.title, j.url, j.family, j.track,
-           lj.score, lj.verdict, lj.notes, lj.flags, lj.deadline
+           a.skip_reason, a.applied_at::text AS applied_at, j.company, j.title, COALESCE(j.apply_url, j.url) AS url, j.family, j.track,
+           j.apply_route, j.apply_email, lj.score, lj.verdict, lj.notes, lj.flags, lj.deadline
     FROM applications a JOIN jobs j ON j.id = a.job_id LEFT JOIN latest_judgments lj ON lj.job_id = j.id
     WHERE a.user_id = ${USER} AND a.state = ANY(${states}::text[])
     ORDER BY a.updated_at DESC`;
@@ -808,7 +814,7 @@ export async function claimTasks(sql: Sql, runner: string, limit: number, kind?:
                         SELECT id FROM worker_tasks
                         WHERE (status = 'queued' OR (status = 'claimed' AND claimed_at < now() - make_interval(mins => ${CLAIM_TTL_MIN})))
                           AND attempts < ${MAX_ATTEMPTS} AND (${kind ?? null}::text IS NULL OR kind = ${kind ?? null})
-                        ORDER BY CASE kind WHEN 'coach' THEN 0 WHEN 'tailor' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END, id
+                        ORDER BY CASE kind WHEN 'coach' THEN 0 WHEN 'answers' THEN 1 WHEN 'tailor' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, id
                         LIMIT ${limit} FOR UPDATE SKIP LOCKED)
                       RETURNING id, kind, ref, payload, attempts`;
   const rank = (k: string) => TASK_KINDS.indexOf(k as TaskKind); // UPDATE ... RETURNING does not keep the subquery's order
@@ -859,4 +865,29 @@ export async function workerWeek(sql: Sql, today: string) {
   const r = await sql`SELECT count(*) FILTER (WHERE status = 'done')::int AS done, count(*) FILTER (WHERE status = 'failed')::int AS failed
                       FROM worker_tasks WHERE done_at >= ${addDays(today, -7)}::date`;
   return { done: Number(r[0]?.done ?? 0), failed: Number(r[0]?.failed ?? 0) };
+}
+
+// ---------- apply routes ----------
+
+/** MyCareersFuture and aggregator jobs worth showing whose official route has not been looked up yet, best first. */
+export async function jobsNeedingRoute(sql: Sql, channels: string[], limit: number) {
+  return sql<{ id: number; company: string; title: string; jd_text: string | null }>`
+    SELECT j.id, j.company, j.title, j.jd_text
+    FROM jobs j JOIN latest_judgments lj ON lj.job_id = j.id
+    LEFT JOIN applications a ON a.job_id = j.id AND a.user_id = ${USER}
+    WHERE j.closed_at IS NULL AND j.channel = ANY(${channels}::text[]) AND j.apply_route IS NULL
+      AND (a.id IS NULL OR a.state IN ('today','snoozed','tailoring','finding_contact','awaiting_send','ask_sent','ready_to_fill','prefilled'))
+      AND (a.id IS NOT NULL OR (lj.verdict <> 'Skip' AND lj.score >= 55))
+    ORDER BY (a.id IS NOT NULL) DESC, lj.score DESC, j.id
+    LIMIT ${limit}`;
+}
+
+export async function setRoute(sql: Sql, jobId: number, route: 'official' | 'email' | 'none', applyUrl: string | null, applyEmail: string | null) {
+  await sql`UPDATE jobs SET apply_route = ${route}, apply_url = ${applyUrl}, apply_email = ${applyEmail}, route_checked_at = now() WHERE id = ${jobId}`;
+}
+
+/** The newest answers task for an application: its status and, when done, the drafted answers. */
+export async function latestAnswers(sql: Sql, appId: number) {
+  const r = await sql`SELECT status, result FROM worker_tasks WHERE kind = 'answers' AND ref = ${`app:${appId}`} ORDER BY id DESC LIMIT 1`;
+  return (r[0] as { status: string; result: { output?: { answers?: { qid: string; text: string }[] } } | null }) ?? null;
 }

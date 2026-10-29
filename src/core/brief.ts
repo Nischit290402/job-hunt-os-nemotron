@@ -32,6 +32,8 @@ export interface TodayItem {
   deadline: string;
   contact: string | null;
   daysWaiting: number;
+  /** How to apply when it is not the usual form: an email address, or the employer's own page found for you. */
+  applyNote?: string;
 }
 
 export interface ApprovalItem {
@@ -54,6 +56,8 @@ export interface ReadyItem {
   title: string;
   state: 'ready_to_fill' | 'prefilled';
   applyUrl: string;
+  /** The posting asks for your CV by email: no form, a Gmail draft with your resume attached instead. */
+  applyEmail?: string | null;
 }
 
 export interface Health {
@@ -109,6 +113,7 @@ export async function todayCard(it: TodayItem, idx: number, sign: Signer, dashbo
   ];
   if (it.flags.length) lines.push(`Flags: ${escapeHtml(it.flags.join('; '))}`);
   lines.push(`Contact: ${it.contact ? escapeHtml(it.contact) : 'none found yet'}`);
+  if (it.applyNote) lines.push(escapeHtml(it.applyNote));
   if (it.daysWaiting >= 2) lines.push('<i>Waiting 2+ days. It will be snoozed tomorrow if you do not decide.</i>');
   return {
     text: lines.join('\n'),
@@ -157,6 +162,18 @@ export async function approvalCard(a: ApprovalItem, sign: Signer): Promise<OutMe
 }
 
 export async function readyCard(r: ReadyItem, sign: Signer): Promise<OutMessage> {
+  if (r.applyEmail) {
+    return {
+      text: `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)} <i>(app ${r.applicationId})</i>: this posting takes applications by email to ${escapeHtml(r.applyEmail)}. I can put the email, with your tailored resume attached, in your Gmail drafts.`,
+      keyboard: [
+        [{ text: 'Save to Gmail drafts', callback_data: await sign('ae', r.applicationId) }],
+        [
+          { text: 'I submitted it', callback_data: await sign('sb', r.applicationId) },
+          { text: 'Not now', callback_data: await sign('nn', r.applicationId) },
+        ],
+      ],
+    };
+  }
   const text =
     r.state === 'prefilled'
       ? `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)} <i>(app ${r.applicationId})</i>: form filled on your laptop. Review it and click Submit there.`
