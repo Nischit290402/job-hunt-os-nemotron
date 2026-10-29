@@ -105,7 +105,7 @@ export async function tailor(sql: Sql, appId: number) {
   }
   await queueTailor(sql, app);
   const f = await fire(sql, `tailor resume for ${app.company}`);
-  await tg.send(`Tailoring your resume for <b>${escapeHtml(app.company)}</b>. It arrives here in a few minutes.${f.fired ? '' : ` (${escapeHtml(f.note)})`}`);
+  await tg.send(`Tailoring your resume for <b>${escapeHtml(app.company)}</b> (app ${appId}). It arrives here in a few minutes.${f.fired ? '' : ` (${escapeHtml(f.note)})`}`);
   return { ok: true, queued: true };
 }
 

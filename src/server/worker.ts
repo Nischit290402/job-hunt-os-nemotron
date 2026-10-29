@@ -218,7 +218,7 @@ async function applyTailor(sql: Sql, meta: Record<string, any>, r: TailorResultI
   if (meta.redo || !(await repo.latestResume(sql, app.id))) {
     await repo.saveResume(sql, app.id, { tex: r.tex, pdfBase64: r.pdfBase64, summary: `${r.base}: ${r.summary}`.slice(0, 300), verifyPassed: r.verifyPassed, verifyOutput: String(r.verifyOutput ?? '').slice(-3000) });
     const verdict = r.verifyPassed === false ? 'verify.py FAILED, check before using' : r.verifyPassed ? 'verify.py: READY TO SEND' : 'verify.py not run';
-    await tg.sendDocument(`${app.company.replace(/[^A-Za-z0-9]+/g, '_')}_resume.pdf`, Buffer.from(r.pdfBase64, 'base64'), `${app.company}, ${app.title}\n${r.base}: ${r.summary}\n${verdict}`);
+    await tg.sendDocument(`${app.company.replace(/[^A-Za-z0-9]+/g, '_')}_resume.pdf`, Buffer.from(r.pdfBase64, 'base64'), `${app.company}, ${app.title} (app ${app.id})\n${r.base}: ${r.summary}\n${verdict}`);
   }
   await tryEvent(sql, app.id, 'resume.ready', ['tailoring']);
   await emitResumeDone(app.id);

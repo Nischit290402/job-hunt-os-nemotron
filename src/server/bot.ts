@@ -119,11 +119,13 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
     }
     case '/pipeline': {
       const rows = await repo.appsInStates(sql, PIPELINE_COLUMNS.flatMap((c) => c.states) as AppState[]);
+      // Each stage lists its applications with the id the other commands take (/tailor 4, /submitted 4, ...).
       const lines = PIPELINE_COLUMNS.map((c) => {
-        const n = rows.filter((r) => c.states.includes(r.state)).length;
-        return `${c.title}: ${n}`;
+        const inStage = rows.filter((r) => c.states.includes(r.state));
+        if (!inStage.length) return `<b>${c.title}</b>: none`;
+        return [`<b>${c.title}</b> (${inStage.length})`, ...inStage.slice(0, 15).map((r) => `  ${r.id}: ${escapeHtml(r.company)}, ${escapeHtml(r.title)}`)].join('\n');
       });
-      return void (await tg.send(`<b>Pipeline</b>\n${lines.join('\n')}\n${env.appUrl()}/pipeline`));
+      return void (await tg.send(`<b>Pipeline</b> (number = app id)\n${lines.join('\n')}\n${env.appUrl()}/pipeline`));
     }
     case '/job': {
       if (!arg) return void (await tg.send('Usage: /job &lt;company&gt;'));

@@ -103,7 +103,7 @@ export function headerText(d: BriefData): string {
 
 export async function todayCard(it: TodayItem, idx: number, sign: Signer, dashboardUrl: string): Promise<OutMessage> {
   const lines = [
-    `<b>${idx}. ${escapeHtml(it.company)}</b>, ${escapeHtml(it.title)}`,
+    `<b>${idx}. ${escapeHtml(it.company)}</b>, ${escapeHtml(it.title)} <i>(app ${it.applicationId})</i>`,
     `Score ${it.score} (${escapeHtml(it.verdict)}, ${escapeHtml(it.family)})${it.deadline && it.deadline !== 'rolling' ? `. Closes ${it.deadline}` : ''}`,
     escapeHtml(it.notes),
   ];
@@ -139,7 +139,7 @@ export async function skipReasonKeyboard(applicationId: number, sign: Signer): P
 
 export async function approvalCard(a: ApprovalItem, sign: Signer): Promise<OutMessage> {
   const lines = [
-    `<b>Referral ask</b> to ${escapeHtml(a.contactName)} (${escapeHtml(a.contactHeadline)}) for ${escapeHtml(a.company)}, ${escapeHtml(a.role)}`,
+    `<b>Referral ask</b> to ${escapeHtml(a.contactName)} (${escapeHtml(a.contactHeadline)}) for ${escapeHtml(a.company)}, ${escapeHtml(a.role)} <i>(app ${a.applicationId})</i>`,
   ];
   if (a.email) {
     lines.push(`Email to ${escapeHtml(a.email)}`, `<b>Subject:</b> ${escapeHtml(a.subject)}`, `<pre>${escapeHtml(a.body)}</pre>`);
@@ -159,8 +159,8 @@ export async function approvalCard(a: ApprovalItem, sign: Signer): Promise<OutMe
 export async function readyCard(r: ReadyItem, sign: Signer): Promise<OutMessage> {
   const text =
     r.state === 'prefilled'
-      ? `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)}: form filled on your laptop. Review it and click Submit there.`
-      : `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)}: ready to fill. Open your laptop and the agent fills it, or apply by hand.`;
+      ? `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)} <i>(app ${r.applicationId})</i>: form filled on your laptop. Review it and click Submit there.`
+      : `<b>${escapeHtml(r.company)}</b>, ${escapeHtml(r.title)} <i>(app ${r.applicationId})</i>: ready to fill. Open your laptop and the agent fills it, or apply by hand.`;
   return {
     text,
     keyboard: [
