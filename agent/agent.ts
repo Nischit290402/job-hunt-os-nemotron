@@ -132,8 +132,10 @@ if (SYNC_ONLY) await syncMaster(true); // then the process ends on its own; proc
 
 const answers: Answers = SYNC_ONLY ? ({} as Answers) : JSON.parse(readFileSync(ANSWERS, 'utf8'));
 
+const SESSION = createHash('sha256').update(`${Date.now()}-${Math.random()}`).digest('hex').slice(0, 12);
+
 async function nextTask() {
-  const r = await fetch(`${BASE}/api/agent/next`, { headers: auth });
+  const r = await fetch(`${BASE}/api/agent/next?session=${SESSION}`, { headers: auth });
   if (!r.ok) throw new Error(`next: ${r.status}`);
   return (await r.json()) as { task: null | { applicationId: number; company: string; title: string; applyUrl: string; resumeUrl: string | null }; paused?: boolean };
 }
