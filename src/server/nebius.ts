@@ -55,7 +55,8 @@ function buildBody(call: LlmCall, model: string, f: Flags): Record<string, unkno
     body.tools = call.tools;
     body.tool_choice = call.toolChoice ?? 'auto';
   }
-  if (call.thinking === false && f.noThinkKwarg) body.chat_template_kwargs = { enable_thinking: false };
+  // Nemotron Nano, Super VL and Lightning reason by default and spend max_tokens on it; only an explicit thinking: true keeps it on.
+  if (call.thinking !== true && f.noThinkKwarg) body.chat_template_kwargs = { enable_thinking: false };
   if (call.schema) {
     if (f.strictSchema) {
       body.response_format = { type: 'json_schema', json_schema: { name: call.schema.name, schema: call.schema.schema, strict: true } };
