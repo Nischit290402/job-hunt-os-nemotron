@@ -422,3 +422,11 @@ main:has(> .ch) { padding-top: 0; padding-bottom: 0; max-width: none; }
   .ch-ring .arc, .ch-meter span, .ch-sug, .ch-chev, .ch-send, .ch-btn { transition: none; }
   .ch-sug:hover { transform: none; }
 }
+
+/* Apply link icon and the hover/focus tooltip on the disabled Gmail button. */
+.ch-apply { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }
+.ch-ext { width: 13px; height: 13px; }
+.ch-tipwrap { position: relative; display: inline-flex; outline: none; border-radius: 8px; }
+.ch-tipwrap:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.ch-tip { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 20; width: max-content; max-width: 280px; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--surface); font-size: 12.5px; line-height: 1.4; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .12s; }
+.ch-tipwrap:hover .ch-tip, .ch-tipwrap:focus .ch-tip, .ch-tipwrap:focus-within .ch-tip { opacity: 1; visibility: visible; }

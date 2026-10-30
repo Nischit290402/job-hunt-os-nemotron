@@ -233,8 +233,51 @@ function gateStatus(value: string): 'pass' | 'flag' | 'fail' | 'other' {
   return w === 'PASS' ? 'pass' : w === 'FLAG' ? 'flag' : w === 'FAIL' ? 'fail' : 'other';
 }
 
-function JobCard({ card }: { card: Extract<Card, { kind: 'job' }> }) {
-  const href = safeHref(card.url);
+/** Apply opens the posting in a new tab; hidden when the url is empty or not http(s). */
+function ApplyLink({ url }: { url: string | undefined }) {
+  const href = safeHref(url);
+  if (!href) return null;
+  return (
+    <a className="ch-btn small primary ch-apply" href={href} target="_blank" rel="noopener noreferrer" title={`Open the posting on ${hostOf(href)}`}>
+      Apply
+      <svg className="ch-ext" viewBox="0 0 16 16" aria-hidden>
+        <path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </a>
+  );
+}
+
+function JobActions({ appId, company, url, onAction, busy }: { appId?: number; company: string; url: string | undefined; onAction: OnAction; busy: boolean }) {
+  const href = safeHref(url);
+  if (appId === undefined && !href) return null;
+  return (
+    <div className="ch-rowi-act">
+      {appId !== undefined && (
+        <>
+          <button
+            type="button"
+            className="ch-btn small"
+            disabled={busy}
+            onClick={() => onAction(`Tailor resume for ${company}`, { expert: 'resume', action: 'tailor', args: { appId, company } })}
+          >
+            Tailor
+          </button>
+          <button
+            type="button"
+            className="ch-btn small"
+            disabled={busy}
+            onClick={() => onAction(`Find someone at ${company}`, { expert: 'outreach', action: 'find_contact_and_draft', args: { appId, company } })}
+          >
+            Find someone
+          </button>
+        </>
+      )}
+      <ApplyLink url={url} />
+    </div>
+  );
+}
+
+function JobCard({ card, onAction, busy }: { card: Extract<Card, { kind: 'job' }>; onAction: OnAction; busy: boolean }) {
   const gates = Object.entries(card.gates ?? {}).sort(([a], [b]) => a.localeCompare(b));
   const rolling = !card.deadline || card.deadline === 'rolling';
   return (
@@ -273,13 +316,9 @@ function JobCard({ card }: { card: Extract<Card, { kind: 'job' }> }) {
           ))}
         </ul>
       )}
-      {href && (
-        <div className="ch-card-foot">
-          <a href={href} target="_blank" rel="noopener noreferrer">
-            Open posting on {hostOf(href)}
-          </a>
-        </div>
-      )}
+      <div className="ch-card-foot">
+        <JobActions appId={card.appId} company={card.company} url={card.url} onAction={onAction} busy={busy} />
+      </div>
     </article>
   );
 }
@@ -292,7 +331,6 @@ function JobsCard({ card, onAction, busy }: { card: Extract<Card, { kind: 'jobs'
       {card.items.length === 0 && <p className="muted small">Nothing matched.</p>}
       <ul className="ch-rows">
         {card.items.map((it, i) => {
-          const href = safeHref(it.url);
           const both = typeof it.nanoScore === 'number' && typeof it.ultraScore === 'number';
           return (
             <li key={`${it.jobId}-${i}`} className="ch-rowi">
@@ -301,14 +339,7 @@ function JobsCard({ card, onAction, busy }: { card: Extract<Card, { kind: 'jobs'
               </span>
               <div className="ch-rowi-main">
                 <div className="ch-rowi-title">
-                  <b>{it.company}</b>{' '}
-                  {href ? (
-                    <a href={href} target="_blank" rel="noopener noreferrer">
-                      {it.title}
-                    </a>
-                  ) : (
-                    it.title
-                  )}
+                  <b>{it.company}</b> {it.title}
                 </div>
                 <div className="ch-rowi-sub">
                   {it.verdict && <span className={`pill v-${verdictTone(it.verdict)}`}>{it.verdict}</span>}
@@ -320,28 +351,7 @@ function JobsCard({ card, onAction, busy }: { card: Extract<Card, { kind: 'jobs'
                   {it.notes && <span className="ch-rowi-notes">{it.notes}</span>}
                 </div>
               </div>
-              {it.appId !== undefined && (
-                <div className="ch-rowi-act">
-                  <button
-                    type="button"
-                    className="ch-btn small"
-                    disabled={busy}
-                    onClick={() => onAction(`Tailor resume for ${it.company}`, { expert: 'resume', action: 'tailor', args: { appId: it.appId, company: it.company } })}
-                  >
-                    Tailor
-                  </button>
-                  <button
-                    type="button"
-                    className="ch-btn small"
-                    disabled={busy}
-                    onClick={() =>
-                      onAction(`Find someone at ${it.company}`, { expert: 'outreach', action: 'find_contact_and_draft', args: { appId: it.appId, company: it.company } })
-                    }
-                  >
-                    Find someone
-                  </button>
-                </div>
-              )}
+              <JobActions appId={it.appId} company={it.company} url={it.url} onAction={onAction} busy={busy} />
             </li>
           );
         })}
@@ -438,6 +448,8 @@ function DraftCard({ card }: { card: Extract<Card, { kind: 'draft' }> }) {
   const src = safeHref(card.contact?.sourceUrl);
   const search = safeHref(card.linkedinSearchUrl);
   const noteLen = [...card.linkedinNote].length;
+  const tip = card.demo ? 'Off in the public demo. In the real app this saves a Gmail draft after your tap; nothing is ever sent for you.' : 'Nothing to save yet.';
+  const tipId = `ch-tip-${card.appId}`;
   const emailText = card.subject ? `Subject: ${card.subject}\n\n${card.emailBody}` : card.emailBody;
   return (
     <article className="ch-card">
@@ -465,15 +477,6 @@ function DraftCard({ card }: { card: Extract<Card, { kind: 'draft' }> }) {
         </div>
       ) : (
         <p className="ch-notes">I could not verify a public contact for this company, so the draft has no name. Use the LinkedIn search below and pick someone yourself.</p>
-      )}
-      {card.checks.length > 0 && (
-        <div className="ch-gates">
-          {card.checks.map((c, i) => (
-            <span key={`${c.id}-${i}`} className={`ch-gate g-${c.pass ? 'pass' : 'fail'}`} title={c.detail}>
-              {c.pass ? <Icon kind="pass" /> : <Icon kind="fail" />} {c.id.replace(/_/g, ' ')}
-            </span>
-          ))}
-        </div>
       )}
       {card.emailBody && (
         <section className="ch-draft">
@@ -507,12 +510,12 @@ function DraftCard({ card }: { card: Extract<Card, { kind: 'draft' }> }) {
           </a>
         )}
         {card.demo || card.messageId === null ? (
-          <span className="ch-disabled">
-            <button type="button" className="ch-btn" disabled>
+          <span className="ch-tipwrap" tabIndex={0} aria-describedby={tipId} title={tip}>
+            <button type="button" className="ch-btn" disabled title={tip}>
               Save to Gmail drafts
             </button>
-            <span className="small muted">
-              {card.demo ? 'Off in the public demo. In the real app this saves a Gmail draft after your tap; nothing is ever sent for you.' : 'Nothing to save yet.'}
+            <span role="tooltip" id={tipId} className="ch-tip">
+              {tip}
             </span>
           </span>
         ) : (
@@ -533,7 +536,7 @@ function DraftCard({ card }: { card: Extract<Card, { kind: 'draft' }> }) {
 export function CardView({ card, onAction, busy }: { card: Card; onAction: OnAction; busy: boolean }): ReactNode {
   switch (card.kind) {
     case 'job':
-      return <JobCard card={card} />;
+      return <JobCard card={card} onAction={onAction} busy={busy} />;
     case 'jobs':
       return <JobsCard card={card} onAction={onAction} busy={busy} />;
     case 'resume':
