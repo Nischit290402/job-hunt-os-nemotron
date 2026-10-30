@@ -2,7 +2,7 @@
 
 Drop any job signal you find (a screenshot, a link, a pasted post, a company name) into one chat. Three Nemotron experts on Nebius Token Factory turn it into a scored lead, a one-page resume checked against your master, and a referral draft with a cited contact. Nothing leaves without your tap.
 
-- Demo: `<DEMO_URL>`
+- Demo: https://job-hunt-os-nemotron.vercel.app
 - Video (under 3 min): `<VIDEO_URL>`
 - Login: password in the Devpost testing instructions
 
@@ -19,7 +19,7 @@ Turning one of those into a proper application takes four steps:
 
 That takes about an hour per role, so most signals die in the camera roll. Job Hunt OS does steps 1 to 4 in one chat turn each and leaves only the decisions to you.
 
-Usage so far: [X] postings collected and [Y] scored since Oct 23, 2026.
+Usage so far on my own deployment: 265 postings collected from 31 sources, 104 scored, 14 applications picked and 5 submitted, 8 tailored resumes.
 
 ## What
 
@@ -60,14 +60,15 @@ Every model call goes through one file, `src/server/nebius.ts`, to Nebius Token 
 
 - One OpenAI-compatible endpoint serves all three model sizes. Choosing a model per step is a role name (`fast`, `vision`, `reason`) mapped to a model ID in env, so moving a step from Ultra to Nano is a config change with no code change.
 - Saver mode depends on this: it swaps the model ID for a role at runtime, and the request shape stays the same.
-- Measured per flow (median of [N] runs):
+- Measured on the live deployment (one run each, Oct 30, 2026):
 
-| Flow | Calls | Latency | Cost |
+| Flow | Model calls | Latency | Cost |
 | --- | --- | --- | --- |
-| Screenshot to scored lead | [n] | [s] | $[x] |
-| Tailored resume | [n] | [s] | $[x] |
-| Referral draft | [n] | [s] | $[x] |
-| Daily run (6 boards) | [n] | [s] | $[x] |
+| Job link to scored lead (Tavily Extract, Nano extraction, Ultra judge) | 2 | 24 s | $0.006 |
+| Tailored resume (Ultra draft, code gates, one Ultra revision, PDF) | 2 | 25 to 34 s | $0.037 to $0.039 |
+| Referral draft (Tavily, Nano, Ultra draft, Nano review, Ultra redraft) | 4 to 5 | 14 to 25 s | $0.005 |
+| Daily run (6 boards, Nano triage of 10, Ultra re-judge of the top 2) | 12 | not timed | $0.015 |
+| Router (every message) | 1 | 1.4 s | $0.0001 |
 
 ## Tavily
 
