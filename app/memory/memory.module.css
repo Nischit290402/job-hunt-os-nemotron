@@ -1,0 +1,13 @@
+.lead { margin: -8px 0 20px; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.grid > :global(.card) { margin-bottom: 0; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.never { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px dashed var(--line); color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.num { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.controls { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.controls li { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.controls li > :first-child { flex: none; margin-top: 2px; }
