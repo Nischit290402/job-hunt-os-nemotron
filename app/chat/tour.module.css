@@ -1,0 +1,250 @@
+/* First-run walkthrough. Colours come from the app tokens with local fallbacks for both themes. */
+
+.root {
+  --tour-surface: var(--surface, #ffffff);
+  --tour-text: var(--text, #1d1d1f);
+  --tour-text-2: var(--text-2, #6e6e73);
+  --tour-accent: var(--accent, #007aff);
+  --tour-hairline: var(--hairline, rgba(0, 0, 0, 0.08));
+  --tour-soft: rgba(0, 0, 0, 0.05);
+  --tour-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .root {
+    --tour-surface: var(--surface, #1c1c1e);
+    --tour-text: var(--text, #f5f5f7);
+    --tour-text-2: var(--text-2, #a1a1a6);
+    --tour-accent: var(--accent, #0a84ff);
+    --tour-hairline: var(--hairline, rgba(255, 255, 255, 0.1));
+    --tour-soft: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* Transparent layer that keeps clicks off the page while the tour is open. */
+.blocker {
+  position: fixed;
+  inset: 0;
+}
+
+.spot {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 0;
+  pointer-events: none;
+  transition:
+    top 320ms var(--tour-ease),
+    left 320ms var(--tour-ease),
+    width 320ms var(--tour-ease),
+    height 320ms var(--tour-ease),
+    outline-color 200ms ease;
+  animation: fadeIn 260ms ease both;
+}
+
+.spotEmpty {
+  outline-color: transparent;
+}
+
+.pop {
+  position: fixed;
+  box-sizing: border-box;
+  padding: 20px 20px 16px;
+  border-radius: 16px;
+  background: var(--tour-surface);
+  color: var(--tour-text);
+  border: 1px solid var(--tour-hairline);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 24px 64px rgba(0, 0, 0, 0.12);
+  transition:
+    top 320ms var(--tour-ease),
+    left 320ms var(--tour-ease);
+  animation: popIn 280ms var(--tour-ease) both;
+}
+
+.center {
+  animation-name: popScale;
+}
+
+.counter {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--tour-accent);
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--tour-text-2);
+}
+
+.dots {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0 14px;
+}
+
+.dot,
+.dotOn {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--tour-hairline);
+  transition:
+    width 240ms var(--tour-ease),
+    background-color 240ms ease;
+}
+
+.dotOn {
+  width: 18px;
+  background: var(--tour-accent);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+}
+
+.skip,
+.back,
+.next {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  border: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  min-height: 36px;
+  transition:
+    background-color 160ms ease,
+    transform 120ms ease,
+    opacity 160ms ease;
+}
+
+.skip {
+  background: transparent;
+  color: var(--tour-text-2);
+  padding: 8px 4px;
+}
+
+.skip:hover {
+  color: var(--tour-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.back {
+  background: var(--tour-soft);
+  color: var(--tour-text);
+  padding: 9px 16px;
+  font-weight: 500;
+}
+
+.back:hover {
+  background: var(--tour-hairline);
+}
+
+.next {
+  background: var(--tour-accent);
+  color: #ffffff;
+  padding: 9px 20px;
+  font-weight: 600;
+}
+
+.next:hover {
+  opacity: 0.9;
+}
+
+.back:active,
+.next:active {
+  transform: scale(0.97);
+}
+
+.skip:focus-visible,
+.back:focus-visible,
+.next:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tour-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+/* Small screens: the popover becomes a full-width sheet. */
+.sheet {
+  padding: 18px 18px 14px;
+  border-radius: 20px;
+}
+
+@media (max-width: 559px) {
+  .title {
+    font-size: 16px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes popScale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot,
+  .pop,
+  .dot,
+  .dotOn,
+  .back,
+  .next {
+    transition: none;
+    animation: none;
+  }
+}
