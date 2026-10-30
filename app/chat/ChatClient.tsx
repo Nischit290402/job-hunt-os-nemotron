@@ -17,7 +17,7 @@ type Block =
 
 interface Turn {
   id: number;
-  user: { text: string; images: string[]; tapped: boolean };
+  user: { text: string; images: string[]; tapped: boolean; imageCount?: number }; // imageCount: images stripped before storage
   steps: StepEvent[];
   route?: { expert: ExpertId; action: string; confidence: number }[];
   blocks: Block[];
@@ -37,6 +37,68 @@ const MAX_IMAGES = 3;
 const MAX_SIDE = 1600;
 const HISTORY_TURNS = 4;
 const SUMMARY_CHARS = 200;
+
+const STORE_KEY = 'jho_chat_v1';
+const STORE_TURNS = 30;
+const STORE_BYTES = 400_000;
+
+interface StoredChat {
+  v: 1;
+  turns: Turn[];
+  history: TurnSummary[];
+  lastAppId?: number;
+}
+
+const imageCountOf = (t: Turn) => t.user.images.length || t.user.imageCount || 0;
+
+/** Stored turns drop image base64 (only a count is kept) and are saved as finished, so nothing spins after a reload. */
+function toStored(t: Turn): Turn {
+  return { ...t, user: { text: t.user.text, images: [], tapped: t.user.tapped, imageCount: imageCountOf(t) }, done: true, pending: false };
+}
+
+function saveChat(turns: Turn[], lastAppId: number | undefined) {
+  try {
+    if (!turns.length) {
+      window.localStorage.removeItem(STORE_KEY);
+      return;
+    }
+    let kept = turns.slice(-STORE_TURNS).map(toStored);
+    let json = '';
+    for (;;) {
+      const data: StoredChat = { v: 1, turns: kept, history: buildHistory(kept), ...(lastAppId ? { lastAppId } : {}) };
+      json = JSON.stringify(data);
+      if (json.length <= STORE_BYTES || kept.length <= 1) break;
+      kept = kept.slice(1);
+    }
+    if (json.length > STORE_BYTES) return; // one huge turn: skip rather than throw on quota
+    window.localStorage.setItem(STORE_KEY, json);
+  } catch {
+    /* storage full or blocked: the chat still works, it just will not survive navigation */
+  }
+}
+
+function loadChat(): StoredChat | null {
+  try {
+    const raw = window.localStorage.getItem(STORE_KEY);
+    if (!raw) return null;
+    const j = JSON.parse(raw) as Partial<StoredChat>;
+    if (j?.v !== 1 || !Array.isArray(j.turns)) return null;
+    const turns = j.turns
+      .filter((t): t is Turn => !!t && typeof t.id === 'number' && !!t.user && typeof t.user.text === 'string')
+      .map((t) => toStored({ ...t, steps: Array.isArray(t.steps) ? t.steps : [], blocks: Array.isArray(t.blocks) ? t.blocks : [], actions: Array.isArray(t.actions) ? t.actions : [], user: { ...t.user, images: Array.isArray(t.user.images) ? t.user.images : [] } }));
+    return { v: 1, turns, history: Array.isArray(j.history) ? j.history : [], lastAppId: typeof j.lastAppId === 'number' ? j.lastAppId : undefined };
+  } catch {
+    return null;
+  }
+}
+
+function clearChat() {
+  try {
+    window.localStorage.removeItem(STORE_KEY);
+  } catch {
+    /* blocked storage */
+  }
+}
 
 const clip = (s: string, n = SUMMARY_CHARS) => (s.length > n ? `${s.slice(0, n - 3)}...` : s);
 
@@ -75,7 +137,8 @@ async function resizeImage(file: Blob): Promise<Attachment> {
 }
 
 function summarizeUser(t: Turn): string {
-  const imgs = t.user.images.length ? `[${t.user.images.length} screenshot${t.user.images.length === 1 ? '' : 's'}] ` : '';
+  const n = imageCountOf(t);
+  const imgs = n ? `[${n} screenshot${n === 1 ? '' : 's'}] ` : '';
   return clip(`${t.user.tapped ? 'Tapped: ' : ''}${imgs}${t.user.text}`.trim() || '[empty]');
 }
 
@@ -137,11 +200,42 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
   const stickRef = useRef(true);
   const dragDepth = useRef(0);
   const nextId = useRef(1);
+  const [restored, setRestored] = useState(false);
+  const restoredRef = useRef(false);
+
+  // Restore the last conversation before the first real render, so the empty state does not flash.
+  useEffect(() => {
+    const saved = loadChat();
+    if (saved && saved.turns.length) {
+      turnsRef.current = saved.turns;
+      setTurns(saved.turns);
+      nextId.current = Math.max(...saved.turns.map((t) => t.id)) + 1;
+      if (!initialAppId && saved.lastAppId) lastAppIdRef.current = saved.lastAppId;
+    }
+    restoredRef.current = true;
+    setRestored(true);
+    // Leaving /chat mid-answer: keep what arrived so far, restored as finished.
+    return () => {
+      if (restoredRef.current) saveChat(turnsRef.current, lastAppIdRef.current);
+    };
+  }, [initialAppId]);
 
   useEffect(() => {
     turnsRef.current = turns;
     if (stickRef.current) endRef.current?.scrollIntoView({ block: 'end' });
+    // Save once streaming is over; writing on every streamed event would be wasteful.
+    if (restoredRef.current && !turns.some((t) => t.pending && !t.done)) saveChat(turns, lastAppIdRef.current);
   }, [turns]);
+
+  function newChat() {
+    abortRef.current?.abort();
+    turnsRef.current = [];
+    setTurns([]);
+    lastAppIdRef.current = undefined;
+    stickRef.current = true;
+    setHint('');
+    clearChat();
+  }
 
   useEffect(() => {
     const onScroll = () => {
@@ -371,6 +465,8 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
   const footer = spend ? `Nebius Token Factory · ${spend.calls} call${spend.calls === 1 ? '' : 's'} · ${fmtUsd(spend.todayUsd, 4)} today` : '';
   const lastId = turns.length ? turns[turns.length - 1].id : -1;
 
+  if (!restored) return <div className="ch" />;
+
   const composer = (
     <div className={`ch-composer${empty ? ' hero' : ''}`} data-tour="composer">
       {attachments.length > 0 && (
@@ -522,6 +618,14 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
         </div>
       ) : (
         <div className="ch-log" aria-live="polite">
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" className="ch-btn small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999 }} onClick={newChat} title="Start a new chat">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden>
+                <path d="M13.5 3.5l3 3L8 15H5v-3l8.5-8.5zM11.5 5.5l3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              New chat
+            </button>
+          </div>
           {turns.map((t) => (
             <div className="ch-turn" key={t.id}>
               <div className={`ch-user${t.user.tapped ? ' tapped' : ''}`}>
@@ -531,6 +635,11 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
                       // eslint-disable-next-line @next/next/no-img-element
                       <img key={i} src={src} alt={`attached screenshot ${i + 1}`} />
                     ))}
+                  </div>
+                )}
+                {t.user.images.length === 0 && (t.user.imageCount ?? 0) > 0 && (
+                  <div className="ch-user-text" style={{ opacity: 0.7, fontSize: 13 }}>
+                    [{t.user.imageCount} image{t.user.imageCount === 1 ? '' : 's'}]
                   </div>
                 )}
                 {t.user.text && <div className="ch-user-text">{t.user.text}</div>}
