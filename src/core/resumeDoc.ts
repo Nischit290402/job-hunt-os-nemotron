@@ -164,3 +164,16 @@ export function normalizeResumeDoc(raw: unknown): ResumeDoc {
 export function allBullets(doc: ResumeDoc): ResumeBullet[] {
   return [...doc.experience.flatMap((e) => e.bullets), ...doc.projects.flatMap((p) => p.bullets)];
 }
+
+/** Keeps at most `max` bullets, dropping the lowest-priority ones (5 first, later bullets first on ties). Pure; returns how many went. */
+export function capBullets(doc: ResumeDoc, max: number): { doc: ResumeDoc; dropped: number } {
+  const all = allBullets(doc);
+  if (all.length <= max) return { doc, dropped: 0 };
+  const ranked = all.map((b, i) => ({ b, i })).sort((x, y) => y.b.priority - x.b.priority || y.i - x.i);
+  const drop = new Set(ranked.slice(0, all.length - max).map((x) => x.b));
+  const keep = (bs: ResumeBullet[]) => bs.filter((b) => !drop.has(b));
+  return {
+    doc: { ...doc, experience: doc.experience.map((e) => ({ ...e, bullets: keep(e.bullets) })), projects: doc.projects.map((p) => ({ ...p, bullets: keep(p.bullets) })) },
+    dropped: drop.size,
+  };
+}

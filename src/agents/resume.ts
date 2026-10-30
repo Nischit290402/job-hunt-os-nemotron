@@ -4,7 +4,7 @@
  * Sees only the master resume and the one job; never contacts, preferences, scores or other jobs.
  */
 import type { ActionRequest, ChainContext, ChatRequest, Expert, ExpertCtx, ExpertResult, GateCheck, LlmResult, OpenAIMessage } from './types';
-import { normalizeResumeDoc, RESUME_SCHEMA, type ResumeDoc } from '../core/resumeDoc';
+import { normalizeResumeDoc, RESUME_SCHEMA, type ResumeDoc, capBullets } from '../core/resumeDoc';
 import { resumeGate } from '../core/resumeGate';
 import type { MasterCopy } from '../core/master';
 import { renderResumePdf } from '../server/resumePdf';
@@ -132,7 +132,8 @@ function parseDoc(r: LlmResult): ResumeDoc | null {
       return null;
     }
   }
-  const doc = normalizeResumeDoc(raw);
+  // Bullet count is a rule code can enforce exactly: trim by the model's own priorities instead of spending a revision on it.
+  const doc = capBullets(normalizeResumeDoc(raw), 14).doc;
   return doc.experience.length || doc.projects.length ? doc : null;
 }
 

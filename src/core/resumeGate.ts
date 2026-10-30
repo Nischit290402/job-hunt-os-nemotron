@@ -62,7 +62,8 @@ function allText(doc: ResumeDoc): string[] {
   ];
 }
 
-const FIRST_PERSON = [/\bI\b/, /\b(me|my|mine|myself|we|our|ours|ourselves)\b/i, /\bus\b/];
+// "I" only as a word on its own: not a level ("SDE-I"), a series ("Phase I" is rare in bullets) or "I/O".
+const FIRST_PERSON = [/(^|[\s("'])I(?=[\s,.;:!?)"']|$)/, /\b(me|my|mine|myself|we|our|ours|ourselves)\b/i, /\bus\b/];
 
 const lower = (t: string) => t.toLowerCase();
 const digits = (t: string) => t.replace(/\D/g, '');

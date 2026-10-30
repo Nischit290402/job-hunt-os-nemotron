@@ -195,3 +195,21 @@ test('describe: sees only the master and the one job', () => {
   assert.ok(d.sees.some((s) => /master/.test(s)));
   for (const n of ['contacts', 'preferences', 'scores', 'other jobs']) assert.ok(d.neverSees.includes(n));
 });
+
+test('first-person check ignores job levels and I/O; capBullets trims by priority', async () => {
+  const { resumeGate } = await import('../src/core/resumeGate');
+  const { capBullets, allBullets } = await import('../src/core/resumeDoc');
+  const fx = await import('./resumeFixtures');
+  const base = fx.makeDoc(13);
+  const master = fx.MASTER;
+  const doc = structuredClone(base);
+  doc.experience[0].bullets[0].text = 'Re-architected the coupon flow as SDE-I across 3 services, cutting I/O waits by 40% for checkout traffic at peak load';
+  const gate = resumeGate(doc, master + ' 40% 3');
+  assert.equal(gate.checks.find((c: any) => c.id === 'no_first_person')?.pass, true);
+  doc.experience[0].bullets[0].text = 'Built the pipeline so I could cut waits by 40% across 3 services for checkout traffic';
+  assert.equal(resumeGate(doc, master + ' 40% 3').checks.find((c: any) => c.id === 'no_first_person')?.pass, false);
+  const n = allBullets(base).length;
+  const capped = capBullets(base, n - 2);
+  assert.equal(capped.dropped, 2);
+  assert.equal(allBullets(capped.doc).length, n - 2);
+});
