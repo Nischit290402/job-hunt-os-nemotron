@@ -34,13 +34,13 @@ export interface JudgeOutput {
   deadline: string; // 'YYYY-MM-DD' | 'rolling' | ''
 }
 
-export const RUBRIC_VERSION = 'v2.0';
+export const RUBRIC_VERSION = 'v2.1';
 
 export const PERSONA = `You are a senior hiring manager in AI and quant in Singapore who mentors graduate students. You know how Singapore and US-based multinational AI internships convert to full-time roles, how quant firms read machine learning experience, and how an NTU MSc AI student with Flipkart SDE-I experience is perceived. Value real machine learning work over relabelled software or operations work. Be strict: 80 or more needs a clear path to the candidate's goals. Voice: blunt, specific, short. No cheerleading, no emojis, no em dashes.`;
 
 export const RUBRIC = `GATES (run first)
 A1 eligibility: FAIL if the posting requires citizenship, permanent residency or a security clearance (quote it). PASS if it explicitly welcomes international students or visa holders. Otherwise FLAG "eligibility unverified". A FLAG does not lower the score.
-A2 scope (Singapore internships): FAIL if the work is clearly not AI (pure software, testing, support, analytics). FLAG if AI is incidental.
+A2 scope (Singapore internships): software engineering (SWE) and forward deployed engineering (FDE) roles are in scope: PASS when the work touches AI/ML systems, models, data or LLM products; FLAG "AI share unclear" when the JD does not say. FAIL only for work with no AI or engineering content (testing only, support, analytics, sales).
 A3 duration and timing: needs at least 3 months inside May to Oct 2027. Summer 2027 PASS. Jan-start or off-cycle FLAG "shiftable, ask HR". Fall 2026 or too early FAIL.
 A4 hours (remote programmes): PASS only if part-time, a fellowship, or flexible at 16 h/week or less. FAIL if full-time only or 30+ hours. FLAG if not stated. If the role is on-site outside Singapore, FAIL.
 A5 exclusions: FAIL consulting, infra/MLOps/backend/data-engineering scope, PhD-only.

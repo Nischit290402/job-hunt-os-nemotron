@@ -41,7 +41,10 @@ const cases: [string, string, 'keep' | 'reject', string, Partial<RawJob>?][] = [
   ['AI Engineer', 'Remote', 'reject', 'not_program'],
   ['Marketing Intern, AI', SG, 'reject', 'excluded_role'],
   ['Computer Vision Intern', 'SG', 'keep', 'SG_Internships'],
-  ['Software Engineer Intern', SG, 'reject', 'not_ai_scope'],
+  ['Software Engineer Intern', SG, 'keep', 'SG_Internships'],
+  ['Forward Deployed Engineer Intern, 2027', SG, 'keep', 'SG_Internships'],
+  ['Forward Deployed Engineer, GenAI (Thai, English)', SG, 'keep', 'FT_Watch'],
+  ['Data Center Technician Intern, 2027', SG, 'reject', 'not_ai_scope'],
   ['Postdoctoral Fellow, Machine Learning', SG, 'reject', 'excluded_role'],
   ['Full Stack Engineer Intern, AI', SG, 'reject', 'excluded_role'],
 ];

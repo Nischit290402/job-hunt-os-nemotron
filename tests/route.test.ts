@@ -126,12 +126,12 @@ test('/search keeps every relevant level and role family for the company you nam
   const { buildRules, evaluateJob } = await import('../src/core/filters');
   const { DEFAULT_TERMS } = await import('../src/core/terms');
   const R = buildRules(DEFAULT_TERMS);
-  const swe = { company: 'Google', title: 'Software Engineering Intern, 2027 (English)', location: 'Singapore', url: 'https://x/1', posted: '', channel: 'CRAWL' as const };
-  assert.equal(evaluateJob(swe, R).action, 'reject', 'the daily run keeps its AI scope');
+  const swe = { company: 'Google', title: 'Data Center Technician Intern, 2027', location: 'Singapore', url: 'https://x/1', posted: '', channel: 'CRAWL' as const };
+  assert.equal(evaluateJob(swe, R).action, 'reject', 'the daily run keeps its role scope');
   const kept = evaluateJob({ ...swe, searched: true }, R);
   assert.ok(kept.action === 'keep' && kept.track === 'sg');
-  const fde = evaluateJob({ ...swe, title: 'Forward Deployed Engineer, GenAI (Thai, English)', searched: true }, R);
-  assert.ok(fde.action === 'keep' && fde.track === 'ft');
+  const other = evaluateJob({ ...swe, title: 'Hardware Engineer, Pixel (Mandarin, English)', searched: true }, R);
+  assert.ok(other.action === 'keep' && other.track === 'ft');
   assert.equal(evaluateJob({ ...swe, title: 'Staff Research Engineer, DeepMind', searched: true }, R).action, 'reject', 'senior roles still skipped');
   assert.equal(evaluateJob({ ...swe, location: 'London', searched: true }, R).action, 'reject', 'location still applies');
 });

@@ -35,11 +35,11 @@ export const DEFAULT_TERMS: TermLists = {
     'machine learning,ml,ai,artificial intelligence,deep learning,computer vision,vision,perception,nlp,natural language,llm,' +
       'language model,generative,genai,multimodal,reinforcement learning,rl,research,researcher,applied scientist,data scientist,' +
       'data science,quant,quantitative,algorithm,algorithmic,algo,robotics,agent,agentic,speech,recommendation,recommender,' +
-      'diffusion,foundation model'
+      'diffusion,foundation model,software engineer,software engineering,software developer,swe,forward deployed,fde'
   ),
   ft: list(
     'research engineer,research scientist,machine learning engineer,ml engineer,applied scientist,ai engineer,computer vision,' +
-      'quantitative researcher,quant researcher,new grad,graduate,entry level,junior,2028'
+      'quantitative researcher,quant researcher,new grad,graduate,entry level,junior,2028,software engineer,forward deployed engineer'
   ),
   program: list(
     'intern,internship,fellow,fellowship,scholar,scholars,resident,residency,student researcher,co-op,apprentice,part-time,part time,program'
