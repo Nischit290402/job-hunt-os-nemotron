@@ -6,7 +6,7 @@ import type { Sql } from './sql';
 import * as repo from './repo';
 import { sendDraft } from './outreach';
 import { createGmailDraft } from './gmail';
-import { features } from './env';
+import { env, features } from './env';
 import { applicationEmail } from '../core/outreach';
 import { resumeFileName, searchName } from '../core/contacts';
 import { emit, EV } from '../inngest/client';
@@ -24,6 +24,8 @@ export interface ActionResult {
 }
 
 export async function handleAction(sql: Sql, action: Action, appId: number, today: string): Promise<ActionResult> {
+  // Public demo: buttons never change state or reach Gmail. The assistant is where a judge works on a job.
+  if (env.demoMode()) return { text: 'This is the public demo, so this button does not act. Open the job in the assistant instead.' };
   const app = await repo.getApplication(sql, appId);
   if (!app) return { text: 'That item no longer exists.' };
   const label = `<b>${escapeHtml(app.company)}</b>, ${escapeHtml(app.title)}`;
