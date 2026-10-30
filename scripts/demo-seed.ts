@@ -69,7 +69,7 @@ if (flag('--no-daily')) {
 const today = sgtDate();
 const startedAt = new Date().toISOString();
 // Non-literal dynamic import: typecheck does not bind this script to the daily module's exact exports.
-const dailyModule = '../src/server/nemotron/daily';
+const dailyModule = '../src/server/nemotron/daily'; // kept dynamic so the seed can store the master without the daily run
 const m: any = await import(dailyModule);
 if (typeof m.runDaily !== 'function') throw new Error('runDaily not found in src/server/nemotron/daily');
 const summary = await m.runDaily(sql, today, { sources: 6, triage: 10, rejudge: 2, deadlineMs: Date.now() + 280_000 });

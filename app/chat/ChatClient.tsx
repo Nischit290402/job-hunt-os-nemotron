@@ -356,7 +356,9 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
     fileRef.current?.click();
   }
 
-  const tap = (label: string, request: ActionRequest) => void send({ text: label, action: request, tappedLabel: label });
+  // The orchestrator's "Upload a screenshot" button carries note 'upload_screenshot': open the picker, do not call the server.
+  const tap = (label: string, request: ActionRequest) =>
+    request.args?.note === 'upload_screenshot' ? fileRef.current?.click() : void send({ text: label, action: request, tappedLabel: label });
 
   const appForPrompt = initialAppId && turns.length === 0 ? initialAppId : undefined;
   const footer = spend
