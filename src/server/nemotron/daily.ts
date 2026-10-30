@@ -101,7 +101,11 @@ export async function runDaily(sql: Sql, today: string, opts: DailyOpts = {}): P
         ORDER BY lj.score DESC, lj.job_id LIMIT ${nRejudge * 2}`;
       for (const r of more) if (!picks.some((p) => p.jobId === Number(r.job_id))) picks.push({ jobId: Number(r.job_id), score: Number(r.score) });
     }
-    const chosen = picks.slice(0, nRejudge);
+    // Ultra only where it can change the answer: a job without a description is capped at 64 whatever the model.
+    const withJd = picks.length
+      ? new Set((await sql`SELECT id FROM jobs WHERE jd_status = 'ok' AND id IN (SELECT jsonb_array_elements_text(${JSON.stringify(picks.map((p) => p.jobId))}::jsonb)::int)`).map((r) => Number(r.id)))
+      : new Set<number>();
+    const chosen = picks.filter((p) => withJd.has(p.jobId)).slice(0, nRejudge);
     const queue = [...chosen];
     const worker = async () => {
       for (let p = queue.shift(); p && !s.capped; p = queue.shift()) {
