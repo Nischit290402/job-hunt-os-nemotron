@@ -4,7 +4,7 @@
  * server sent. Text that came from job posts or web pages is shown as plain text (React escapes it) and links are
  * kept to http(s), so a posting cannot inject markup or a javascript: link.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { ActionRequest, Card, ExpertId, GateCheck, StepEvent } from '@/src/agents/types';
 
 export type OnAction = (label: string, request: ActionRequest) => void;
@@ -58,11 +58,17 @@ export function modelShortName(model: string | undefined): string {
   return model.split('/').pop() ?? model;
 }
 
+/** The one-word tier for a chip: Nano, Ultra, Super VL or Lightning. */
+export function modelTier(model: string | undefined): string {
+  const n = modelShortName(model);
+  return n.replace(/^Nemotron\s+(\d+(?:\.\d+)?\s+)?/, '') || n;
+}
+
 export function ModelChip({ model }: { model?: string }) {
   if (!model) return null;
   return (
     <span className="ch-model" title={model}>
-      {modelShortName(model)}
+      {modelTier(model)}
     </span>
   );
 }
@@ -134,67 +140,74 @@ export function Trace({
   route,
   pending,
   totalCostUsd,
+  latest = false,
 }: {
   steps: StepEvent[];
   route?: { expert: ExpertId; action: string; confidence: number }[];
   pending: boolean;
   totalCostUsd?: number;
+  latest?: boolean;
 }) {
+  // Open while the answer streams, folds itself away when it is done; a click toggles it either way.
+  const [open, setOpen] = useState(pending);
+  useEffect(() => setOpen(pending), [pending]);
   if (!pending && steps.length === 0 && !route?.length) return null;
   const ms = steps.reduce((s, x) => s + (x.ms ?? 0), 0);
   const cost = totalCostUsd ?? steps.reduce((s, x) => s + (x.costUsd ?? 0), 0);
-  const modelCalls = steps.filter((s) => s.model).length;
+  const secs = ms >= 1000 ? `${Math.round(ms / 1000)} s` : fmtMs(ms) || '0 s';
+  const parts = [`${steps.length} step${steps.length === 1 ? '' : 's'}`];
+  if (cost > 0) parts.push(fmtUsd(cost));
   return (
-    <details className="ch-trace" open>
-      <summary>
-        <span className="ch-trace-title">
-          {pending && <span className="ch-spin" aria-hidden />}
-          {pending ? 'Working' : 'How this was made'}
-        </span>
-        <span className="ch-trace-sum">
-          {steps.length} step{steps.length === 1 ? '' : 's'}
-          {modelCalls > 0 && `, ${modelCalls} model call${modelCalls === 1 ? '' : 's'}`}
-          {ms > 0 && `, ${fmtMs(ms)}`}
-          {cost > 0 && `, ${fmtUsd(cost)}`}
-        </span>
-      </summary>
-      {route && route.length > 0 && (
-        <div className="ch-route">
-          Routed to <b>{expertLabel(route[0].expert)}</b>, {route[0].action.replace(/_/g, ' ')} ({Math.round(route[0].confidence * 100)}%)
-          {route.length > 1 && <span className="muted"> · next: {route.slice(1).map((r) => r.action.replace(/_/g, ' ')).join(', ')}</span>}
+    <div className={`ch-trace${open ? ' open' : ''}`} data-tour={latest ? 'trace' : undefined}>
+      <button type="button" className="ch-trace-sumrow" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {pending ? <span className="ch-spin" aria-hidden /> : <span className="ch-trace-ok" aria-hidden />}
+        <span className="ch-trace-title">{pending ? 'Working' : `Worked for ${secs}`}</span>
+        <span className="ch-trace-sum">· {parts.join(' · ')}</span>
+        <svg className="ch-chev" viewBox="0 0 16 16" aria-hidden>
+          <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="ch-trace-body">
+          {route && route.length > 0 && (
+            <div className="ch-route">
+              Routed to <b>{expertLabel(route[0].expert)}</b>, {route[0].action.replace(/_/g, ' ')} ({Math.round(route[0].confidence * 100)}%)
+              {route.length > 1 && <span className="muted"> · next: {route.slice(1).map((r) => r.action.replace(/_/g, ' ')).join(', ')}</span>}
+            </div>
+          )}
+          <ol className="ch-steps">
+            {steps.map((s, i) => (
+              <li key={i} className={`ch-step s-${s.status}`}>
+                <span className="ch-dot" title={STATUS_TEXT[s.status]} />
+                <span className="ch-step-label">
+                  <span className="ch-step-exp">{expertLabel(s.expert)}</span>
+                  {s.label}
+                </span>
+                <span className="ch-step-meta">
+                  {s.status === 'fallback' && <span className="pill warn">fallback</span>}
+                  {s.status === 'error' && <span className="pill bad">error</span>}
+                  {s.status === 'skipped' && <span className="pill">skipped</span>}
+                  <ModelChip model={s.model} />
+                  {s.ms !== undefined && <span className="ch-num">{fmtMs(s.ms)}</span>}
+                  {(s.tokensIn !== undefined || s.tokensOut !== undefined) && (
+                    <span className="ch-num ch-tok" title={`${s.tokensIn ?? 0} tokens in, ${s.tokensOut ?? 0} tokens out`}>
+                      {fmtTok(s.tokensIn)} / {fmtTok(s.tokensOut)} tok
+                    </span>
+                  )}
+                  {s.costUsd !== undefined && <span className="ch-num">{fmtUsd(s.costUsd)}</span>}
+                </span>
+              </li>
+            ))}
+            {pending && (
+              <li className="ch-step s-pending">
+                <span className="ch-dot" />
+                <span className="ch-step-label muted">{steps.length ? 'Next step running' : 'Reading your message'}</span>
+              </li>
+            )}
+          </ol>
         </div>
       )}
-      <ol className="ch-steps">
-        {steps.map((s, i) => (
-          <li key={i} className={`ch-step s-${s.status}`}>
-            <span className="ch-dot" title={STATUS_TEXT[s.status]} />
-            <span className="ch-step-label">
-              <span className="ch-step-exp">{expertLabel(s.expert)}</span>
-              {s.label}
-            </span>
-            <span className="ch-step-meta">
-              {s.status === 'fallback' && <span className="pill warn">fallback</span>}
-              {s.status === 'error' && <span className="pill bad">error</span>}
-              {s.status === 'skipped' && <span className="pill">skipped</span>}
-              <ModelChip model={s.model} />
-              {s.ms !== undefined && <span className="ch-num">{fmtMs(s.ms)}</span>}
-              {(s.tokensIn !== undefined || s.tokensOut !== undefined) && (
-                <span className="ch-num" title={`${s.tokensIn ?? 0} tokens in, ${s.tokensOut ?? 0} tokens out`}>
-                  {fmtTok(s.tokensIn)} / {fmtTok(s.tokensOut)} tok
-                </span>
-              )}
-              {s.costUsd !== undefined && <span className="ch-num">{fmtUsd(s.costUsd)}</span>}
-            </span>
-          </li>
-        ))}
-        {pending && (
-          <li className="ch-step s-pending">
-            <span className="ch-dot" />
-            <span className="ch-step-label muted">{steps.length ? 'Next step running' : 'Reading your message'}</span>
-          </li>
-        )}
-      </ol>
-    </details>
+    </div>
   );
 }
 
