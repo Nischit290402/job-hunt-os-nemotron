@@ -279,3 +279,12 @@ test('pipeline on the real schema: contact, draft row and card', { skip: pg ? fa
   const c = await sql`SELECT source, relation, linkedin_url FROM contacts WHERE id = ${d?.contact_id}`;
   assert.deepEqual(c[0], { source: 'public_page', relation: 'cold', linkedin_url: null });
 });
+
+test('a contact must be a person, never the company or a team', async () => {
+  const { looksLikePersonName } = await import('../src/core/outreachCheck');
+  assert.equal(looksLikePersonName('Hudson River Trading', 'Hudson River Trading'), false);
+  assert.equal(looksLikePersonName('HRT Recruiting Team', 'Hudson River Trading'), false);
+  assert.equal(looksLikePersonName('Jane Tan', 'Hudson River Trading'), true);
+  assert.equal(looksLikePersonName("Liam O'Brien", 'Grab'), true);
+  assert.equal(looksLikePersonName('Grab Holdings', 'Grab'), false);
+});

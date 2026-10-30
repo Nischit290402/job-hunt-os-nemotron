@@ -4,6 +4,7 @@
  *  - outreachCheck: a draft passes only when every number is backed by the candidate summary, it links nothing but
  *    the job, the LinkedIn note fits, and the style rules hold.
  */
+import { searchName } from './contacts';
 import type { GateCheck } from '../agents/types';
 import { companyMentioned } from './contacts';
 import { isLinkedInUrl } from './lead';
@@ -52,6 +53,7 @@ export function validateCandidate(raw: unknown, pages: Page[], company: string):
     hook: String(r.hook ?? '').replace(/\s+/g, ' ').trim().slice(0, 240),
   };
   if (c.name.length < 3 || c.name.length > 80 || !/\s/.test(c.name)) return { ok: false, reason: 'no full name' };
+  if (!looksLikePersonName(c.name, company)) return { ok: false, reason: 'not a person: a contact must be a named individual, not the company or a team' };
   if (isBlockedUrl(c.source_url)) return { ok: false, reason: 'LinkedIn is never a source' };
   const page = pages.find((p) => sameUrl(p.url, c.source_url));
   if (!page) return { ok: false, reason: 'source_url is not a page that was read' };
@@ -62,6 +64,19 @@ export function validateCandidate(raw: unknown, pages: Page[], company: string):
   if (!text.includes(normText(c.name))) return { ok: false, reason: 'name is not on the page' };
   if (!companyMentioned(page.text, company)) return { ok: false, reason: 'page does not mention the company' };
   return { ok: true, candidate: c, page };
+}
+
+/** 2 to 4 capitalised words, no digits, no org words, and not the company's own name. */
+export function looksLikePersonName(name: string, company: string): boolean {
+  const n = name.replace(/\s+/g, ' ').trim();
+  const words = n.split(' ');
+  if (words.length < 2 || words.length > 4 || /\d/.test(n)) return false;
+  if (!words.every((w) => /^[A-Z][\p{L}'.-]*$/u.test(w))) return false;
+  if (/\b(team|careers?|recruiting|talent|group|labs?|inc|llc|ltd|pte|limited|capital|trading|technologies|technology|holdings|university|hr|people|company|research)\b/i.test(n)) return false;
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const co = norm(searchName(company));
+  const nn = norm(n);
+  return !(co && (nn === co || nn.includes(co) || co.includes(nn)));
 }
 
 // ---------- draft checks ----------
