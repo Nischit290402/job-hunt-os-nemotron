@@ -88,7 +88,9 @@ async function post(body: Record<string, unknown>, timeoutMs: number): Promise<a
 
 /** One completion with the retry rules: fix a rejected request field once, wait once on 429, then the fallback model once. */
 async function request(call: LlmCall, role: ModelRole): Promise<{ data: any; model: string; fallback: boolean }> {
-  const f: Flags = { strictSchema: true, noThinkKwarg: true };
+  // Live probe (Oct 30): strict json_schema on Nemotron Nano returned malformed, padded JSON; json_object plus the schema
+  // in the system message returned clean JSON. Strict mode stays available behind NEBIUS_STRICT_SCHEMA=1.
+  const f: Flags = { strictSchema: process.env.NEBIUS_STRICT_SCHEMA === '1', noThinkKwarg: true };
   let model = modelFor(role);
   let fallback = false;
   let fixed400 = false;

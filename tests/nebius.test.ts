@@ -91,7 +91,7 @@ test('budgetModeFor: saver at 60% of daily, stopped at either cap', () => {
   assert.equal(budgetModeFor(0.1, 15, 1, 15), 'stopped');
 });
 
-test('schema call: json_schema request, parsed json, runs row, step event', async () => {
+test('schema call: json_object request with the schema in the system message, parsed json, runs row, step event', async () => {
   const reqs = mockFetch([completion('{"score": 82}', { model: 'nvidia/test-Nano' })]);
   const sql = fakeSql();
   const { emit, events } = collect();
@@ -101,7 +101,8 @@ test('schema call: json_schema request, parsed json, runs row, step event', asyn
   assert.equal(reqs[0].auth, 'Bearer test-key');
   assert.equal(reqs[0].body.model, 'nvidia/test-Nano');
   assert.equal(reqs[0].body.max_tokens, 800);
-  assert.deepEqual(reqs[0].body.response_format, { type: 'json_schema', json_schema: { ...schema, strict: true } });
+  assert.deepEqual(reqs[0].body.response_format, { type: 'json_object' });
+  assert.match(JSON.stringify(reqs[0].body.messages[0]), /schema/i);
   assert.deepEqual(reqs[0].body.chat_template_kwargs, { enable_thinking: false });
   near(r.costUsd, 0.00006 + 0.00012);
   assert.deepEqual(r.usage, { in: 1000, out: 500 });
