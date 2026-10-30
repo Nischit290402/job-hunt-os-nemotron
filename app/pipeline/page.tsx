@@ -51,7 +51,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
   return (
     <>
       <h1>Pipeline</h1>
-      <p className="muted small">Something happened outside the system, like an interview call? Use /outcome in Telegram or the buttons on the job page.</p>
+      <p className="muted small">Every job you are tracking, by stage. Open a row to update it, for example after an interview call.</p>
 
       <nav className={s.funnel} aria-label="Stages">
         <a href={href('all')} className={`${s.seg} ${active === 'all' ? s.segActive : ''}`} aria-current={active === 'all' ? 'page' : undefined}>
