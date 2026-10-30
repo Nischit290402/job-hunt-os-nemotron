@@ -3,8 +3,9 @@
  * Job Hunt OS worker helper. Claude (your Claude Code scheduled task, or Claude Code on your laptop) runs these
  * commands; the jobhunt-worker skill says when. No dependencies: Node 18+, plus pdflatex and Python for resumes.
  *
- *   node worker/cli.mjs claim [n] [kind]          claim up to n tasks, optionally of one kind (judge, tailor, draft, coach)
- *   node worker/cli.mjs show <id...>              print instructions (once when shared), inputs and the answer schema
+ *   node worker/cli.mjs claim [n] [kind]          claim up to n tasks, optionally of one kind (judge, tailor, draft, coach, answers, lead)
+ *   node worker/cli.mjs show <id...>              print instructions (once when shared), inputs and the answer schema;
+ *                                                 a lead task's screenshots are saved as .work/<id>-<n>.<ext> to open with Read
  *   node worker/cli.mjs answer <id> <file>        post a judge/draft answer (JSON) or a coach answer (text)
  *   node worker/cli.mjs answer-batch <file>       post many answers: {"<id>": {...answer...}, ...}
  *   node worker/cli.mjs kit                       download master files, bases and gate scripts into .work/kit
@@ -155,7 +156,7 @@ switch (cmd) {
     for (const t of d.tasks) {
       writeFileSync(join(WORK, `${t.id}.json`), JSON.stringify(t, null, 2));
       const m = t.meta || {};
-      const what = t.kind === 'judge' ? `job ${m.jobId}` : t.kind === 'coach' ? 'question from Telegram' : `${m.company ?? ''} ${m.role ?? ''} (application ${m.applicationId})`;
+      const what = t.kind === 'judge' ? `job ${m.jobId}` : t.kind === 'coach' ? 'question from Telegram' : t.kind === 'lead' ? `${m.count ?? '?'} screenshot(s) of a job post` : `${m.company ?? ''} ${m.role ?? ''} (application ${m.applicationId})`;
       console.log(`${t.id}\t${t.kind}\t${what}\t.work/${t.id}.json`);
     }
     break;
@@ -171,6 +172,12 @@ switch (cmd) {
       console.log(`=== TASK ${t.id} (${t.kind}) ===`);
       if (!shared) console.log(`--- instructions ---\n${t.instructions}\n--- input ---`);
       console.log(`${t.input}\n`);
+      for (const [i, img] of (t.images || []).entries()) {
+        const ext = { 'image/png': 'png', 'image/webp': 'webp' }[img.mime] || 'jpg';
+        const f = join(WORK, `${t.id}-${i + 1}.${ext}`);
+        writeFileSync(f, Buffer.from(img.b64, 'base64'));
+        console.log(`Screenshot ${i + 1}: ${f}`);
+      }
     }
     break;
   }

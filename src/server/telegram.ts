@@ -63,6 +63,16 @@ export async function downloadFile(fileId: string): Promise<string> {
   return res.text();
 }
 
+/** Downloads a photo or image file you sent (screenshots for a lead). Telegram bots can fetch files up to 20 MB. */
+export async function downloadBytes(fileId: string): Promise<{ bytes: Uint8Array; mime: string }> {
+  const f = await call('getFile', { file_id: fileId });
+  const res = await fetch(`https://api.telegram.org/file/bot${env.telegramToken()}/${f.file_path}`);
+  if (!res.ok) throw new Error(`download failed ${res.status}`);
+  const path = String(f.file_path ?? '').toLowerCase();
+  const mime = path.endsWith('.png') ? 'image/png' : path.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+  return { bytes: new Uint8Array(await res.arrayBuffer()), mime };
+}
+
 /** One-time setup: point Telegram at this deployment with the secret header. Run via `npm run telegram:webhook`. */
 export async function setWebhook(appUrl: string) {
   return call('setWebhook', {

@@ -4,7 +4,7 @@
  * skills and posts results back. Pure helpers only; the queries live in server/repo.ts.
  */
 
-export const TASK_KINDS = ['coach', 'answers', 'tailor', 'draft', 'judge'] as const; // claim order: the person waiting comes first
+export const TASK_KINDS = ['coach', 'answers', 'lead', 'tailor', 'draft', 'judge'] as const; // claim order: the person waiting comes first
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const CLAIM_TTL_MIN = 20; // a claim older than this is treated as abandoned and handed out again
@@ -21,6 +21,7 @@ export interface TaskView {
   input: string;
   schema: object | null; // JSON schema the answer must match; null for free text (coach) and tailor
   meta: Record<string, unknown>;
+  images?: { mime: string; b64: string }[]; // screenshots for a lead task
 }
 
 /** Start a run unless one started in the last 90 s and has not reported idle since (it will pick the new work up). */
@@ -54,6 +55,12 @@ export function resultError(kind: TaskKind, r: unknown): string | null {
     }
     case 'coach':
       return typeof o.text === 'string' && o.text.trim() ? null : 'expected {"text": "..."}';
+    case 'lead': {
+      const l = o.output as Record<string, unknown> | undefined;
+      if (!l || typeof l !== 'object') return 'expected {"output": {"company": "...", "role": "...", ...}}';
+      if (l.readable === false) return null;
+      return typeof l.company === 'string' && l.company.trim() && typeof l.role === 'string' && l.role.trim() ? null : 'company and role are required (or set "readable": false)';
+    }
     case 'tailor': {
       if (typeof o.tex !== 'string' || !o.tex.includes('\\begin{document}')) return 'expected the full LaTeX in "tex"';
       if (typeof o.pdfBase64 !== 'string' || !o.pdfBase64.startsWith('JVBER')) return 'expected the compiled PDF in "pdfBase64"';
@@ -73,6 +80,7 @@ export function toView(t: { id: number; kind: TaskKind; payload: Record<string, 
     input: String(p.input ?? ''),
     schema: (p.schema as object) ?? null,
     meta: (p.meta as Record<string, unknown>) ?? {},
+    ...(Array.isArray(p.images) ? { images: p.images as TaskView['images'] } : {}),
   };
 }
 
@@ -121,3 +129,19 @@ export function cleanQuestions(q: unknown): OpenQuestionIn[] | null {
   }));
   return out.every((x) => /^q\d{1,2}$/.test(x.qid) && x.label) ? out : null;
 }
+
+/** What the worker reads off a job screenshot. `readable: false` when the images show no job at all. */
+export const LEAD_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['readable', 'company', 'role', 'person', 'link', 'location', 'jd'],
+  properties: {
+    readable: { type: 'boolean' },
+    company: { type: 'string', maxLength: 120 },
+    role: { type: 'string', maxLength: 200 },
+    person: { type: 'string', maxLength: 80 },
+    link: { type: 'string', maxLength: 500 },
+    location: { type: 'string', maxLength: 120 },
+    jd: { type: 'string', maxLength: 20000 },
+  },
+} as const;

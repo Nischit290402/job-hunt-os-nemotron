@@ -107,3 +107,57 @@ t('lead without a description: asks for it, a later reply supersedes and judges;
   const again = await createLead(sql, p.lead, TODAY);
   assert.equal(again.appId, r.appId);
 });
+
+test('screenshot leads: caption forms, what was read, and what you typed winning', async () => {
+  const { screenshotCaption, leadFromScreenshot } = await import('../src/core/lead');
+  assert.deepEqual(screenshotCaption('Jane Tan https://acme.com/jobs/1'), { person: 'Jane Tan', link: 'https://acme.com/jobs/1' });
+  assert.deepEqual(screenshotCaption('Acme | ML Intern | - |'), { company: 'Acme', role: 'ML Intern', person: '', link: '' });
+  assert.deepEqual(screenshotCaption(''), {});
+  const read = { readable: true, company: 'Motional', role: 'ML Intern', person: 'Jane Tan', link: 'motional.com/careers/123', location: 'Singapore', jd: JD };
+  const a = leadFromScreenshot(read);
+  assert.ok(a && a.company === 'Motional' && a.link === 'https://motional.com/careers/123' && a.jd.startsWith('Location: Singapore\nYou will'));
+  const b = leadFromScreenshot(read, 'Wei Ling');
+  assert.equal(b?.person, 'Wei Ling', 'your caption wins over the image');
+  assert.equal(leadFromScreenshot({ ...read, link: 'see comments' })?.link, '');
+  assert.equal(leadFromScreenshot({ readable: false, company: '', role: '' }), null);
+  assert.equal(leadFromScreenshot({ readable: true, company: 'Acme', role: '' }), null);
+});
+
+t('screenshots: an album is batched atomically, taken once quiet, read by the worker into a lead', async () => {
+  const { addShot, takeShots, SHOTS_QUIET_MS, queueScreenshots } = await import('../src/server/lead');
+  const now = Date.now();
+  const ns = await Promise.all([1, 2, 3].map((i) => addShot(sql, { fileId: `f${i}`, caption: i === 1 ? 'Jane Tan' : '', messageId: 100 + i }, now)));
+  assert.deepEqual([...ns].sort(), [1, 2, 3], 'three webhook calls at once, none lost');
+  assert.equal(await takeShots(sql, now + 1000), null, 'still within the quiet window');
+  const shots = await takeShots(sql, now + SHOTS_QUIET_MS + 1);
+  assert.equal(shots?.length, 3);
+  assert.equal(await takeShots(sql, now + SHOTS_QUIET_MS + 2), null, 'taken once');
+
+  // Telegram file downloads, stubbed: getFile then the bytes.
+  mock.restoreAll();
+  mock.method(globalThis, 'fetch', async (url: string, init?: any) => {
+    const u = String(url);
+    if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/a.jpg' } }));
+    if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff]));
+    if (u.includes('api.telegram.org')) {
+      sent.push(String(init?.body ?? ''));
+      return new Response(JSON.stringify({ ok: true, result: { message_id: 9 } }));
+    }
+    return new Response('not found', { status: 404 });
+  });
+  const q = await queueScreenshots(sql, shots!);
+  assert.equal(q.count, 3);
+  const [task] = await repo.claimTasks(sql, 'cloud', 1, 'lead');
+  assert.equal(task.kind, 'lead');
+  assert.equal((task.payload.images as any[]).length, 3);
+  assert.match(String(task.payload.input), /Jane Tan/);
+  sent.length = 0;
+  await applyResult(sql, task.id, { output: { readable: true, company: 'Snap', role: 'Machine Learning Intern', person: '', link: '', location: 'Singapore', jd: JD } });
+  assert.ok(sent.some((b) => b.includes('Added') && b.includes('Snap')), 'lead announced');
+  const left = await sql`SELECT payload ? 'images' AS has FROM worker_tasks WHERE id = ${task.id}`;
+  assert.equal(left[0].has, false, 'screenshots are dropped once read');
+  const app = await sql`SELECT a.id FROM applications a JOIN jobs j ON j.id = a.job_id WHERE j.company = 'Snap'`;
+  assert.equal(app.length, 1);
+  const contact = await repo.kvGet<number>(sql, leadContactKey(app[0].id));
+  assert.equal((await repo.getContact(sql, contact!))?.name, 'Jane Tan', 'the caption names the contact');
+});

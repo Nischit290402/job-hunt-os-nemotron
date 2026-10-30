@@ -7,7 +7,7 @@ import * as repo from './repo';
 import { httpGet, httpPost } from './http';
 import { scrape } from './firecrawl';
 import { env } from './env';
-import { buildRules, evaluateJob, type RawJob } from '../core/filters';
+import { buildRules, evaluateJob, jobTypeOf, type RawJob } from '../core/filters';
 import { DEFAULT_TERMS, withExtraTerms } from '../core/terms';
 import { canonicalKey } from '../core/keys';
 import { ashby, channelOf, crawl, detailPlan, freehire, greenhouse, lever, mcf, mdlist, ParseError, smartrecruiters, workday, type SourceRow } from '../core/sources';
@@ -130,11 +130,12 @@ async function fetchJobs(sql: Sql, s: SourceRow, today: string): Promise<{ jobs:
   }
 }
 
-export async function collectSource(sql: Sql, sourceId: string, today: string, now = Date.now()): Promise<CollectResult> {
+/** `searched`: run for /search, which keeps every relevant level and role family (see filters.evaluateJob). */
+export async function collectSource(sql: Sql, sourceId: string, today: string, now = Date.now(), opts: { searched?: boolean } = {}): Promise<CollectResult & { jobIds: { jobId: number; isNew: boolean; title: string; type: string }[] }> {
   const started = Date.now();
   const s = await repo.getSource(sql, sourceId);
   if (!s || !s.enabled) {
-    return { sourceId, status: 'skipped', note: 'disabled or missing', listed: 0, kept: 0, newJobs: 0, closed: 0, credits: 0, rejected: {} };
+    return { sourceId, status: 'skipped', note: 'disabled or missing', listed: 0, kept: 0, newJobs: 0, closed: 0, credits: 0, rejected: {}, jobIds: [] };
   }
   const prefs = await repo.preferenceBundle(sql);
   const rules = buildRules(withExtraTerms(DEFAULT_TERMS, { exclude: prefs.exclude, archive: prefs.archive }));
@@ -145,14 +146,18 @@ export async function collectSource(sql: Sql, sourceId: string, today: string, n
   let kept = 0;
   let newJobs = 0;
   const seenKeys = new Set<string>();
+  const stillListed: string[] = [];
+  const jobIds: { jobId: number; isNew: boolean; title: string; type: string }[] = [];
   for (const raw of f.jobs) {
     raw.channel = channelOf(s.type);
     if (s.track_hint) raw.hint = s.track_hint;
+    if (opts.searched) raw.searched = true;
     const key = canonicalKey(raw);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     const d = evaluateJob(raw, rules, now);
     if (d.action === 'reject') {
+      stillListed.push(key); // a job you added with /search stays open while the source still lists it
       rejected[d.reason] = (rejected[d.reason] ?? 0) + 1;
       if (sample.length < 10 && d.reason !== 'empty_title') sample.push({ title: raw.title, reason: d.reason });
       continue;
@@ -161,7 +166,9 @@ export async function collectSource(sql: Sql, sourceId: string, today: string, n
     if (newJobs >= MAX_NEW_PER_SOURCE) continue; // safety stop against a filter mistake; the rest arrive next run
     const r = await repo.upsertJob(sql, raw, d, s.id, today);
     if (r.isNew) newJobs++;
+    jobIds.push({ jobId: r.jobId, isNew: r.isNew, title: raw.title, type: jobTypeOf(d.track, d.hoursFlag) });
   }
+  if (f.status === 'ok' && stillListed.length) await repo.touchListed(sql, s.id, stillListed, today);
   const closed = f.status === 'ok' ? await repo.markMissing(sql, s.id, today) : 0;
   await repo.recordSourceResult(sql, s.id, f.status === 'ok' ? `ok${f.note ? ': ' + f.note : ''}` : `${f.status}: ${f.note}`, f.jobs.length, f.status === 'ok');
   await repo.recordRun(sql, {
@@ -173,7 +180,7 @@ export async function collectSource(sql: Sql, sourceId: string, today: string, n
     credits: f.credits,
     detail: { listed: f.jobs.length, kept, new: newJobs, closed, rejected, rejected_sample: sample, note: f.note },
   });
-  return { sourceId, status: f.status, note: f.note, listed: f.jobs.length, kept, newJobs, closed, credits: f.credits, rejected };
+  return { sourceId, status: f.status, note: f.note, listed: f.jobs.length, kept, newJobs, closed, credits: f.credits, rejected, jobIds };
 }
 
 /**

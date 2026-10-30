@@ -2,7 +2,7 @@ import { Inngest } from 'inngest';
 
 export const inngest = new Inngest({ id: 'job-hunt-os' });
 
-/** Event names. data always carries applicationId (a number). */
+/** Event names. App events carry applicationId (a number). */
 export const EV = {
   apply: 'app/apply',
   outreachDecided: 'app/outreach.decided', // data.decision: 'sent' | 'dropped'
@@ -11,6 +11,8 @@ export const EV = {
   rejudge: 'jobs/rejudge',
   resumeDone: 'worker/resume.done', // tailored resume saved, or tailoring gave up
   workerIdle: 'worker/idle', // a worker run emptied the queue
+  companySearch: 'jobs/company.search', // data.company: what you typed after /search
+  leadShot: 'lead/screenshot', // a screenshot arrived; the batch is read once they stop coming
 } as const;
 
 export async function emit(name: string, data: Record<string, unknown>) {

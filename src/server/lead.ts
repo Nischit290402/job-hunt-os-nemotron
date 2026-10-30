@@ -8,7 +8,9 @@ import * as repo from './repo';
 import { env } from './env';
 import { httpGet } from './http';
 import { scrape } from './firecrawl';
-import { fire, queueJudgeJob, sendLeadCard } from './worker';
+import { fire, queueJudgeJob, queueLeadShots, sendLeadCard } from './worker';
+import * as tg from './telegram';
+import { escapeHtml } from '../core/brief';
 import { buildRules, evaluateJob, familyOf, type Decision, type RawJob } from '../core/filters';
 import { DEFAULT_TERMS, withExtraTerms } from '../core/terms';
 import { hash12 } from '../core/keys';
@@ -32,7 +34,7 @@ async function fetchDescription(sql: Sql, link: string, today: string): Promise<
   return { text: '', how: `the link gave no readable description${r.status && r.status !== 200 ? ` (HTTP ${r.status})` : ''}` };
 }
 
-export async function createLead(sql: Sql, lead: Lead, today: string, now = Date.now()) {
+export async function createLead(sql: Sql, lead: Lead, today: string, now = Date.now(), from: 'typed' | 'screenshot' = 'typed') {
   const url = leadUrl(lead, hash12);
   const raw: RawJob = {
     company: lead.company, title: lead.role, location: 'Singapore', url, posted: today,
@@ -46,7 +48,7 @@ export async function createLead(sql: Sql, lead: Lead, today: string, now = Date
   const { jobId } = await repo.upsertJob(sql, raw, keep, null, today);
 
   let jd = lead.jd.trim();
-  let how = jd.length >= JD_MIN ? 'as you pasted it' : '';
+  let how = jd.length >= JD_MIN ? (from === 'screenshot' ? 'read from your screenshots' : 'as you pasted it') : '';
   if (jd.length < JD_MIN) {
     const f = await fetchDescription(sql, lead.link, today);
     if (f.text) [jd, how] = [f.text, f.how];
@@ -106,4 +108,65 @@ export async function appendLeadJd(sql: Sql, p: LeadPending, chunk: string, toda
     await fire(sql, 'judge your lead');
   }
   return { chars: jd.length, judging: jd.length >= JD_MIN };
+}
+
+/** Tells you what happened to a lead (typed or from screenshots) and, without a usable description, asks for one. */
+export async function announceLead(sql: Sql, lead: Lead, r: Awaited<ReturnType<typeof createLead>>, sourceText = '') {
+  if (!['today', 'snoozed'].includes(r.state)) {
+    return void (await tg.send(`${escapeHtml(lead.company)}, ${escapeHtml(lead.role)} is already in your pipeline (application ${r.appId}, ${r.state}).`));
+  }
+  const lines = [`Added <b>${escapeHtml(lead.company)}</b>, ${escapeHtml(lead.role)} (application ${r.appId}).${escapeHtml(r.contactNote)}`];
+  if (r.jdChars < JD_MIN) {
+    const promptId = await tg.askForReply(`No usable description yet (${escapeHtml(r.how)}). Reply to this message with the job description as text; long pastes in several parts are fine.`, 'Job description');
+    await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: Date.now() } satisfies LeadPending);
+    return void (await tg.send(lines.join('\n')));
+  }
+  lines.push(`Description ${escapeHtml(r.how)}. Scoring it now; the card with Apply, Skip and Snooze follows in a minute or two.`);
+  // Telegram splits a paste over 4096 characters; only then do the next plain messages count as more description.
+  const maybeSplit = sourceText.length >= 3500;
+  await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId: null, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: maybeSplit ? Date.now() : 0 } satisfies LeadPending);
+  await tg.send(lines.join('\n'));
+}
+
+// ---------- screenshots ----------
+
+export const SHOTS_KEY = 'lead_shots';
+export const SHOTS_QUIET_MS = 20_000; // screenshots sent together (an album, or one after another) are read as one post
+export const MAX_SHOTS = 6;
+
+export interface Shot {
+  fileId: string;
+  caption: string;
+  messageId: number;
+}
+
+/** Adds a screenshot to the batch being collected. Atomic, because an album arrives as several webhook calls at once. */
+export async function addShot(sql: Sql, shot: Shot, now = Date.now()): Promise<number> {
+  const r = await sql`INSERT INTO kv (key, value, updated_at)
+                        VALUES (${SHOTS_KEY}, jsonb_build_object('shots', jsonb_build_array(${JSON.stringify(shot)}::jsonb), 'lastAt', ${now}::bigint), now())
+                      ON CONFLICT (key) DO UPDATE SET
+                        value = jsonb_build_object('shots', COALESCE(kv.value->'shots', '[]'::jsonb) || jsonb_build_array(${JSON.stringify(shot)}::jsonb), 'lastAt', ${now}::bigint),
+                        updated_at = now()
+                      RETURNING jsonb_array_length(value->'shots') AS n`;
+  return Number(r[0].n);
+}
+
+/** Takes the batch once no screenshot has arrived for SHOTS_QUIET_MS; null while more may still come. */
+export async function takeShots(sql: Sql, now = Date.now()): Promise<Shot[] | null> {
+  const r = await sql`DELETE FROM kv WHERE key = ${SHOTS_KEY} AND (value->>'lastAt')::bigint <= ${now - SHOTS_QUIET_MS}::bigint RETURNING value`;
+  return r.length ? ((r[0].value?.shots ?? []) as Shot[]) : null;
+}
+
+/** Downloads the screenshots and queues them for the worker to read. */
+export async function queueScreenshots(sql: Sql, shots: Shot[]) {
+  const use = shots.slice(0, MAX_SHOTS);
+  const images: { mime: string; b64: string }[] = [];
+  for (const s of use) {
+    const f = await tg.downloadBytes(s.fileId);
+    images.push({ mime: f.mime, b64: Buffer.from(f.bytes).toString('base64') });
+  }
+  const caption = use.map((s) => s.caption).filter(Boolean).join('\n').slice(0, 1000);
+  const t = await queueLeadShots(sql, images, caption, use[0].messageId);
+  const f = await fire(sql, `read ${images.length} screenshot${images.length === 1 ? '' : 's'} for a lead`);
+  return { taskId: t, count: images.length, dropped: shots.length - use.length, fireNote: f.note };
 }

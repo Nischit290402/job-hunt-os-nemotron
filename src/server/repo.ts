@@ -154,6 +154,13 @@ export async function upsertJob(sql: Sql, raw: RawJob, d: Extract<Decision, { ac
   return { jobId: r[0].id as number, isNew: r[0].inserted === true };
 }
 
+/** Listings a source still shows but today's filters skip: jobs you already have for them (from /search) stay open. */
+export async function touchListed(sql: Sql, sourceId: string, keys: string[], today: string): Promise<void> {
+  await sql`UPDATE jobs SET last_seen = ${today}, missed_runs = 0
+            WHERE source_id = ${sourceId} AND closed_at IS NULL
+              AND canonical_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))`;
+}
+
 /** A job missing twice in a row from a source that answered OK is closed. A failed fetch never closes anything. */
 export async function markMissing(sql: Sql, sourceId: string, today: string): Promise<number> {
   const r = await sql`UPDATE jobs SET missed_runs = missed_runs + 1,
@@ -810,6 +817,10 @@ export async function enqueueTask(sql: Sql, kind: TaskKind, ref: string, payload
   return r.length ? Number(r[0].id) : null;
 }
 
+export async function dropTaskImages(sql: Sql, id: number) {
+  await sql`UPDATE worker_tasks SET payload = payload - 'images' WHERE id = ${id}`;
+}
+
 /** Hands out up to `limit` tasks, most urgent kind first. A claim older than CLAIM_TTL_MIN is handed out again. */
 export async function claimTasks(sql: Sql, runner: string, limit: number, kind?: TaskKind): Promise<ClaimedTask[]> {
   const r = await sql`UPDATE worker_tasks SET status = 'claimed', claimed_by = ${runner}, claimed_at = now(), attempts = attempts + 1
@@ -817,7 +828,7 @@ export async function claimTasks(sql: Sql, runner: string, limit: number, kind?:
                         SELECT id FROM worker_tasks
                         WHERE (status = 'queued' OR (status = 'claimed' AND claimed_at < now() - make_interval(mins => ${CLAIM_TTL_MIN})))
                           AND attempts < ${MAX_ATTEMPTS} AND (${kind ?? null}::text IS NULL OR kind = ${kind ?? null})
-                        ORDER BY CASE kind WHEN 'coach' THEN 0 WHEN 'answers' THEN 1 WHEN 'tailor' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, id
+                        ORDER BY CASE kind WHEN 'coach' THEN 0 WHEN 'answers' THEN 1 WHEN 'lead' THEN 2 WHEN 'tailor' THEN 3 WHEN 'draft' THEN 4 ELSE 5 END, id
                         LIMIT ${limit} FOR UPDATE SKIP LOCKED)
                       RETURNING id, kind, ref, payload, attempts`;
   const rank = (k: string) => TASK_KINDS.indexOf(k as TaskKind); // UPDATE ... RETURNING does not keep the subquery's order

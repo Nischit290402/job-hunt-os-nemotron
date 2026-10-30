@@ -104,3 +104,34 @@ t('answers: queued for an application being filled, posted back, sent to Telegra
   assert.equal(latest?.result?.output?.answers?.[0].text, 'Grab runs ranking at the scale I worked on in OmniRec.');
   assert.ok(sent.some((b) => b.includes('Drafted 1 answer') && b.includes('1 left for you')));
 });
+
+test('/search: reading search results as postings, titles, and the report', async () => {
+  const { postingFromResult, postingTitle, searchReportText } = await import('../src/core/companySearch');
+  const g = postingFromResult({ url: 'https://www.google.com/about/careers/applications/jobs/results/1332553-software-engineering-intern-2027', title: 'Software Engineering Intern, 2027 — Google Careers', description: 'Singapore' }, 'Google');
+  assert.deepEqual(g, { title: 'Software Engineering Intern, 2027', url: 'https://www.google.com/about/careers/applications/jobs/results/1332553-software-engineering-intern-2027', location: 'Singapore', ats: false });
+  assert.equal(postingFromResult({ url: 'https://www.google.com/about/careers/applications/jobs/results/?q=intern', title: 'Jobs', description: 'Singapore' }, 'Google'), null, 'search pages are not postings');
+  assert.equal(postingFromResult({ url: 'https://www.linkedin.com/jobs/view/12345', title: 'ML Intern at Google', description: 'Singapore' }, 'Google'), null);
+  assert.equal(postingFromResult({ url: 'https://boards.greenhouse.io/othercorp/jobs/12345', title: 'ML Intern', description: 'Singapore' }, 'Google'), null, 'another company on a hiring system');
+  const gh = postingFromResult({ url: 'https://job-boards.greenhouse.io/motional/jobs/4567890', title: 'Job Application for Machine Learning Intern at Motional', description: 'Singapore, Singapore' }, 'MOTIONAL SINGAPORE PTE. LIMITED');
+  assert.equal(gh?.title, 'Machine Learning Intern');
+  assert.equal(gh?.ats, true);
+  assert.equal(postingTitle('Acme - Research Engineer Intern | Lever', 'Acme'), 'Research Engineer Intern');
+  const text = searchReportText({ company: 'Google', checked: ['4 career pages you track (Google)'], listed: 60, kept: 2, newJobs: 1, rejected: { senior_title: 27 }, added: [{ jobId: 1, title: 'SWE Intern', type: 'intern', isNew: true }, { jobId: 2, title: 'RS', type: 'fulltime', isNew: false }], notes: [] }, 'https://app.example', 1);
+  assert.match(text, /60 postings seen; 2 fit \(1 new, 1 already/);
+  assert.match(text, /27 senior or lead/);
+  assert.match(text, /companies\?q=Google/);
+});
+
+test('/search keeps every relevant level and role family for the company you named', async () => {
+  const { buildRules, evaluateJob } = await import('../src/core/filters');
+  const { DEFAULT_TERMS } = await import('../src/core/terms');
+  const R = buildRules(DEFAULT_TERMS);
+  const swe = { company: 'Google', title: 'Software Engineering Intern, 2027 (English)', location: 'Singapore', url: 'https://x/1', posted: '', channel: 'CRAWL' as const };
+  assert.equal(evaluateJob(swe, R).action, 'reject', 'the daily run keeps its AI scope');
+  const kept = evaluateJob({ ...swe, searched: true }, R);
+  assert.ok(kept.action === 'keep' && kept.track === 'sg');
+  const fde = evaluateJob({ ...swe, title: 'Forward Deployed Engineer, GenAI (Thai, English)', searched: true }, R);
+  assert.ok(fde.action === 'keep' && fde.track === 'ft');
+  assert.equal(evaluateJob({ ...swe, title: 'Staff Research Engineer, DeepMind', searched: true }, R).action, 'reject', 'senior roles still skipped');
+  assert.equal(evaluateJob({ ...swe, location: 'London', searched: true }, R).action, 'reject', 'location still applies');
+});

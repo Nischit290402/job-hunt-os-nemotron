@@ -9,7 +9,7 @@ import { env } from './env';
 import { handleAction } from './actions';
 import { importConnections } from './contacts';
 import { fire, queueCoach, queueTailor } from './worker';
-import { appendLeadJd, createLead, isLeadContinuation, LEAD_PENDING_KEY, type LeadPending } from './lead';
+import { addShot, announceLead, appendLeadJd, createLead, isLeadContinuation, LEAD_PENDING_KEY, type LeadPending } from './lead';
 import { parseLead } from '../core/lead';
 import { parseJobTypes } from '../core/filters';
 import { sendBrief, briefData, buildToday } from './steps';
@@ -36,6 +36,8 @@ const HELP = [
   '/retry &lt;app id&gt;: restart an application workflow that stopped',
   '/jobtypes [intern parttime fulltime]: which job types reach Today (send /jobtypes alone to see the current setting)',
   '/lead Company | Role | Person | Link, then the JD on the next lines: add a job you found yourself (person and link optional)',
+  'Or send screenshots of the post (one or several together). Add a caption with the person or a link if you like.',
+  '/search &lt;company&gt;: look for that company\'s open roles now and add the ones that fit',
   '/tailor &lt;app id&gt; [what to change]: make a new resume version, e.g. /tailor 3 lead with statistics',
   '/health: sources, Claude queue, last worker start, master resume sync',
   'Send Connections.csv as a file to refresh your network.',
@@ -67,6 +69,19 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
   const msg = update.message;
   // Same rule as buttons: your private chat, sent by you. Commands from that chat count as your taps.
   if (!msg || String(msg.chat?.id) !== chatId || String(msg.from?.id) !== chatId) return;
+
+  // Screenshots of a job post: collected for a few seconds, then read by the worker as one lead.
+  const image = msg.photo?.length ? msg.photo[msg.photo.length - 1] : /^image\//.test(String(msg.document?.mime_type ?? '')) ? msg.document : null;
+  if (image) {
+    const n = await addShot(sql, { fileId: String(image.file_id), caption: String(msg.caption ?? '').slice(0, 500), messageId: Number(msg.message_id) });
+    try {
+      await emit(EV.leadShot, { n });
+    } catch {
+      return void (await tg.send('Could not start reading the screenshot (the workflow service did not answer). Send it again in a minute, or use /lead.'));
+    }
+    if (n === 1) await tg.send('Got it. Send the rest within 20 seconds if the post continues; I read them together as one lead.');
+    return;
+  }
 
   // Connections.csv upload
   if (msg.document) {
@@ -186,21 +201,17 @@ export async function handleUpdate(sql: Sql, update: any): Promise<void> {
       const p = parseLead(text);
       if (!p.ok) return void (await tg.send(escapeHtml(p.error)));
       const r = await createLead(sql, p.lead, today);
-      if (!['today', 'snoozed'].includes(r.state)) {
-        return void (await tg.send(`${escapeHtml(p.lead.company)}, ${escapeHtml(p.lead.role)} is already in your pipeline (application ${r.appId}, ${r.state}).`));
+      return void (await announceLead(sql, p.lead, r, text));
+    }
+    case '/search': {
+      const company = arg.replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (company.length < 2) return void (await tg.send('Usage: /search &lt;company&gt;, e.g. /search Google'));
+      try {
+        await emit(EV.companySearch, { company });
+      } catch {
+        return void (await tg.send('Could not start the search (the workflow service did not answer). Try again in a minute.'));
       }
-      const enough = r.jdChars >= 300;
-      const lines = [`Added <b>${escapeHtml(p.lead.company)}</b>, ${escapeHtml(p.lead.role)} (application ${r.appId}).${escapeHtml(r.contactNote)}`];
-      if (enough) lines.push(`Description ${escapeHtml(r.how)}. Scoring it now; the card with Apply, Skip and Snooze follows in a minute or two.`);
-      if (!enough) {
-        const promptId = await tg.askForReply(`No usable description yet (${escapeHtml(r.how)}). Reply to this message with the job description; long pastes in several parts are fine.`, 'Job description');
-        await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: Date.now() } satisfies LeadPending);
-        return void (await tg.send(lines.join('\n')));
-      }
-      // Telegram splits a paste over 4096 characters; only then do the next plain messages count as more description.
-      const maybeSplit = text.length >= 3500;
-      await repo.kvSet(sql, LEAD_PENDING_KEY, { promptId: null, jobId: r.jobId, appId: r.appId, jd: r.jd, lastAt: maybeSplit ? Date.now() : 0 } satisfies LeadPending);
-      return void (await tg.send(lines.join('\n')));
+      return void (await tg.send(`Searching <b>${escapeHtml(company)}</b>: the career pages you track, its public job boards, then the web. The results come in a minute or two.`));
     }
     case '/jobtypes': {
       const current = await repo.jobTypes(sql);

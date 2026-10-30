@@ -20,6 +20,7 @@ export interface RawJob {
   partTime?: boolean; // the source says so (MyCareersFuture employment type)
   extra?: string;
   hint?: string; // 'remote' for hand-picked programme sources
+  searched?: boolean; // found by /search for a company you named: every relevant level and role family is kept
   jdText?: string;
   atsName?: string;
   atsJobId?: string;
@@ -148,7 +149,7 @@ export function evaluateJob(job: RawJob, R: Rules, now: number = Date.now()): De
   }
 
   // Hand-picked programme sources (hint=remote) may carry no AI term in the title.
-  const curated = job.hint === 'remote';
+  const curated = job.hint === 'remote' || job.searched === true;
   if (!curated && !R.role?.test(title)) return rej('not_ai_scope');
 
   const isSG = /singapore/i.test(`${loc} ${title}`) || /(^|[^a-z])sg([^a-z]|$)/i.test(loc);
@@ -172,7 +173,7 @@ export function evaluateJob(job: RawJob, R: Rules, now: number = Date.now()): De
   if (isSG) {
     if (isIntern) return keep('sg', '');
     if (isPartTime) return keep('sg', PART_TIME_FLAG);
-    if (R.ft?.test(title)) return keep('ft', '');
+    if (R.ft?.test(title) || job.searched) return keep('ft', '');
     return rej('sg_not_intern_not_ft');
   }
   if (isIntern || R.program?.test(title)) {

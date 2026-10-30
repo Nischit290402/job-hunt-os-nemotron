@@ -74,3 +74,41 @@ export function leadUrl(lead: Lead, hash: (s: string) => string): string {
   if (lead.link && !isLinkedInUrl(lead.link)) return lead.link;
   return `https://lead.jobhunt.local/${hash(`${lead.company.toLowerCase()}|${lead.role.toLowerCase()}`)}`;
 }
+
+/**
+ * What you typed with the screenshots. Either the /lead head line ("Company | Role | Person | Link", any field may be
+ * empty) or free text: a URL becomes the link and the rest the person, e.g. "Jane Tan https://acme.com/jobs/1".
+ */
+export function screenshotCaption(caption: string): Partial<Lead> {
+  const c = String(caption || '').replace(/^\/lead(@\w+)?\s*/i, '').split(/\r?\n/)[0].trim();
+  if (!c) return {};
+  if (c.includes('|')) {
+    const [company = '', role = '', person = '', link = ''] = c.split('|').map((x) => x.trim());
+    return { company, role, person: person === '-' ? '' : person, link: /^https?:\/\/\S+$/i.test(link) ? link : '' };
+  }
+  const link = (c.match(/https?:\/\/\S+/) ?? [''])[0];
+  const person = c.replace(link, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return { person, link };
+}
+
+/**
+ * The lead the worker read off your screenshots, cleaned like a typed /lead; what you typed with them wins.
+ * Returns null when the screenshots show no job. LinkedIn links are kept for reference but never opened.
+ */
+export function leadFromScreenshot(o: Record<string, unknown>, caption = ''): Lead | null {
+  if (o.readable === false) return null;
+  const s = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const typed = screenshotCaption(caption);
+  let link = s(o.link, 500);
+  if (link && !/^https?:\/\//i.test(link) && /^[a-z0-9.-]+\.[a-z]{2,}\//i.test(link)) link = `https://${link}`;
+  if (!/^https?:\/\/\S+$/i.test(link)) link = '';
+  const location = s(o.location, 120);
+  const lead: Lead = {
+    company: (typed.company || s(o.company, 120)).slice(0, 120),
+    role: (typed.role || s(o.role, 200)).slice(0, 200),
+    person: (typed.person || s(o.person, 80)).slice(0, 80),
+    link: typed.link || link,
+    jd: [location ? `Location: ${location}` : '', String(o.jd ?? '').trim()].filter(Boolean).join('\n').slice(0, 20000),
+  };
+  return lead.company && lead.role ? lead : null;
+}

@@ -10,6 +10,9 @@ import { collectSource, fillDescriptions } from '../server/collector';
 import * as worker from '../server/worker';
 import { env } from '../server/env';
 import { sgtAt, sgtDate } from '../core/time';
+import * as search from '../server/companySearch';
+import { searchReportText } from '../core/companySearch';
+import { queueScreenshots, takeShots } from '../server/lead';
 
 const sameApp = 'async.data.applicationId == event.data.applicationId';
 
@@ -108,4 +111,46 @@ export const workerWatch = inngest.createFunction({ id: 'worker-watch' }, { cron
   step.run('watch', async () => worker.watch(await getSql()))
 );
 
-export const functions = [dailyRun, applicationFlow, replyWatch, eveningNudge, weeklyReview, rejudge, workerWatch];
+/** /search <company>: tracked career pages, public job boards, then a web search; the report goes to Telegram. */
+export const companySearch = inngest.createFunction(
+  { id: 'company-search', concurrency: 1, retries: 1 },
+  { event: EV.companySearch },
+  async ({ event, step }) => {
+    const company = String(event.data.company ?? '').slice(0, 80);
+    const today = await step.run('date', () => sgtDate());
+    const tracked = await step.run('tracked-sources', async () => search.searchTrackedSources(await getSql(), company, today));
+    const boards = await step.run('job-boards', async () => search.searchBoards(await getSql(), company, today));
+    const web = await step.run('web', async () => search.searchWeb(await getSql(), company, today));
+    const report = search.merge(company, [tracked, boards, web]);
+    await step.run('describe', async () => (report.newJobs ? fillDescriptions(await getSql(), today, Math.min(25, report.newJobs + 5)) : null));
+    const judging = await step.run('judge', async () => {
+      if (!report.kept) return 0;
+      const sql = await getSql();
+      const q = await worker.queueJudging(sql, today, 60);
+      if (q.queued) await worker.fire(sql, `judge ${q.queued} jobs from /search ${company}`);
+      return q.queued;
+    });
+    return step.run('report', async () => {
+      const { send } = await import('../server/telegram');
+      await send(searchReportText(report, env.appUrl(), judging));
+      return { kept: report.kept, newJobs: report.newJobs, judging };
+    });
+  }
+);
+
+/** Screenshots for a lead: wait until they stop arriving, then queue them for the worker to read. */
+export const leadScreenshots = inngest.createFunction({ id: 'lead-screenshots', retries: 2 }, { event: EV.leadShot }, async ({ step }) => {
+  await step.sleep('let-the-rest-arrive', '25s');
+  return step.run('queue', async () => {
+    const sql = await getSql();
+    const shots = await takeShots(sql);
+    if (!shots) return { waiting: true }; // a later screenshot's run takes the batch
+    if (!shots.length) return { empty: true };
+    const r = await queueScreenshots(sql, shots);
+    const { send } = await import('../server/telegram');
+    await send(`Reading ${r.count} screenshot${r.count === 1 ? '' : 's'}${r.dropped ? ` (the first ${r.count}; ${r.dropped} more were left out)` : ''}. The lead and its card follow in a few minutes.`);
+    return r;
+  });
+});
+
+export const functions = [dailyRun, applicationFlow, replyWatch, eveningNudge, weeklyReview, rejudge, workerWatch, companySearch, leadScreenshots];

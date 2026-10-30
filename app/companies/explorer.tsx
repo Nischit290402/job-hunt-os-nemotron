@@ -55,8 +55,8 @@ async function getJson<T>(url: string): Promise<T> {
   return r.json();
 }
 
-export default function Explorer({ initial, totals }: { initial: Page<CompanyRow>; totals: CompanyTotals }) {
-  const [q, setQ] = useState('');
+export default function Explorer({ initial, totals, initialQuery = '' }: { initial: Page<CompanyRow>; totals: CompanyTotals; initialQuery?: string }) {
+  const [q, setQ] = useState(initialQuery);
   const [type, setType] = useState<ViewType>('');
   const [sort, setSort] = useState('score');
   const [companies, setCompanies] = useState<Page<CompanyRow>>(initial);
