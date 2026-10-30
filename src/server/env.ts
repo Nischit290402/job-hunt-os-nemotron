@@ -49,6 +49,25 @@ export const env = {
   gmailFrom: () => opt('GMAIL_FROM'),
 
   agentToken: () => req('AGENT_TOKEN'),
+
+  // ---- Nebius hackathon branch: every LLM call goes to Nebius Token Factory (NVIDIA Nemotron). ----
+  nebiusKey: () => opt('NEBIUS_API_KEY'),
+  nebiusBaseUrl: () => opt('NEBIUS_BASE_URL', 'https://api.tokenfactory.nebius.com/v1/').replace(/\/?$/, '/'),
+  modelFast: () => opt('NEBIUS_MODEL_FAST', 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'),
+  modelReason: () => opt('NEBIUS_MODEL_REASON', 'nvidia/Nemotron-3-Ultra-550b-a55b'),
+  modelVision: () => opt('NEBIUS_MODEL_VISION', 'nvidia/Nemotron-3.5-Super-VL'),
+  modelFallback: () => opt('NEBIUS_MODEL_FALLBACK', 'nvidia/Nemotron-3_5-Lightning'),
+  tavilyKey: () => opt('TAVILY_API_KEY'),
+  demoMode: () => opt('DEMO_MODE') === '1',
+  demoPassword: () => opt('DEMO_PASSWORD'),
+  // Money guard: only the free hackathon credits are spent. At a cap the app answers with a banner, never a model call.
+  llmDailyUsdCap: () => num('LLM_DAILY_USD_CAP', 1),
+  llmTotalUsdCap: () => num('LLM_TOTAL_USD_CAP', 15),
+  tavilyDailyCap: () => num('TAVILY_DAILY_CAP', 150),
+  cronSecret: () => opt('CRON_SECRET'),
+  videoUrl: () => opt('VIDEO_URL'),
+  demoSourceIds: () => opt('DEMO_SOURCE_IDS').split(',').map((s) => s.trim()).filter(Boolean),
+  featureSearch: () => opt('FEATURE_SEARCH', '1') !== '0',
 };
 
 export const features = {
@@ -57,4 +76,6 @@ export const features = {
   hunter: () => !!env.hunterKey(),
   firecrawl: () => !!env.firecrawlKey(),
   routine: () => !!(env.routineFireUrl() && env.routineToken()),
+  nebius: () => !!env.nebiusKey(),
+  tavily: () => !!env.tavilyKey(),
 };

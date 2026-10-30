@@ -1,7 +1,7 @@
-/** Loads .env.local (then .env) into process.env for scripts. Existing variables win. */
+/** Loads $ENV_FILE, .env.demo, .env.local, then .env into process.env for scripts. Earlier files and existing variables win. */
 import { existsSync, readFileSync } from 'node:fs';
 
-for (const f of ['.env.local', '.env']) {
+for (const f of [process.env.ENV_FILE, '.env.demo', '.env.local', '.env'].filter((x): x is string => !!x)) {
   if (!existsSync(f)) continue;
   for (const line of readFileSync(f, 'utf8').split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);

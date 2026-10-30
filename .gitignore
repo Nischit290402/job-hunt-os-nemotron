@@ -17,3 +17,6 @@ __pycache__/
 
 # worker scratch (claimed tasks, resume kit, drafts)
 .work/
+
+.env.demo
+.work/
