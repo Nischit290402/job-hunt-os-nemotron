@@ -1,7 +1,7 @@
 /** Referral asks. A signed tap (actions.ts) saves the email to your Gmail drafts; you send it from Gmail yourself. */
 import type { Sql } from './sql';
 import * as repo from './repo';
-import { features } from './env';
+import { env, features } from './env';
 import { createGmailDraft } from './gmail';
 import { checkSendAllowed, followUpBody } from '../core/outreach';
 import { splitName } from '../core/contacts';
@@ -13,6 +13,8 @@ export type SendOutcome = { ok: true; channel: 'email' | 'linkedin'; to: string 
  * here); otherwise it records that you sent the LinkedIn note yourself. The row is claimed first, so two taps act once.
  */
 export async function sendDraft(sql: Sql, appId: number, today: string): Promise<SendOutcome> {
+  // The public demo never touches Gmail or marks anything sent.
+  if (env.demoMode()) return { ok: false, reason: 'Demo mode: saving to Gmail is disabled here. On the owner deployment this saves a Gmail draft; nothing is ever sent.' };
   const draft = await repo.latestDraft(sql, appId);
   if (!draft) return { ok: false, reason: 'no draft waiting (already sent or dropped)' };
   const isEmail = draft.channel === 'email' && !!draft.email;
