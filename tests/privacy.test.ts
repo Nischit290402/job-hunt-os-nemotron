@@ -1,7 +1,7 @@
 /**
  * Privacy guards for the public demo:
  *  - kv 'master_resume' is read only by route handlers that do not exist in demo (worker, agent, telegram, inngest).
- *  - middleware 404s those machine endpoints when DEMO_MODE=1, and the chat API still needs a session.
+ *  - middleware 404s those machine endpoints when DEMO_MODE=1; the open demo mints a session, password mode needs one.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +48,7 @@ test('the chat path (route, orchestrator, router) never touches master_resume', 
   }
 });
 
-test('middleware: demo 404s machine endpoints; chat still needs a session', async (t) => {
+test('middleware: demo 404s machine endpoints; open demo mints a session; password mode needs one', async (t) => {
   let mods: [typeof import('next/server'), typeof import('../middleware')];
   try {
     mods = await Promise.all([import('next/server'), import('../middleware')]);
@@ -65,8 +65,14 @@ test('middleware: demo 404s machine endpoints; chat still needs a session', asyn
       const r = await middleware(new NextRequest(`http://localhost${p}`, { method: 'POST' }));
       assert.equal(r.status, 404, p);
     }
+    // Open demo: the first request gets a fresh signed session instead of a password wall.
+    const open = await middleware(new NextRequest('http://localhost/api/chat', { method: 'POST' }));
+    assert.equal(open.status, 200);
+    assert.ok(open.headers.get('set-cookie')?.includes('jh_session='), 'open demo sets a session cookie');
+    process.env.DEMO_REQUIRE_PASSWORD = '1';
     const chat = await middleware(new NextRequest('http://localhost/api/chat', { method: 'POST' }));
     assert.equal(chat.status, 401);
+    delete process.env.DEMO_REQUIRE_PASSWORD;
     process.env.DEMO_MODE = '';
     const worker = await middleware(new NextRequest('http://localhost/api/worker/claim', { method: 'POST' }));
     assert.notEqual(worker.status, 404, 'outside demo the worker endpoint authenticates itself');

@@ -1,4 +1,6 @@
 /** Sign in. Owner setup: a one-time code sent to your Telegram chat. Public demo (DEMO_MODE=1): one shared password. */
+import { redirect } from 'next/navigation';
+
 export const dynamic = 'force-dynamic';
 
 type Params = { sent?: string; error?: string; e?: string };
@@ -29,6 +31,8 @@ function DemoLogin({ e }: { e?: string }) {
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Params> }) {
   const { sent, error, e } = await searchParams;
+  // The public demo is open; /chat mints a session in middleware. DemoLogin stays for a password-gated setup.
+  if (process.env.DEMO_MODE === '1' && process.env.DEMO_REQUIRE_PASSWORD !== '1') redirect('/chat');
   if (process.env.DEMO_MODE === '1') return <DemoLogin e={e} />;
   return (
     <div style={{ maxWidth: 380, margin: '60px auto' }}>

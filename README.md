@@ -4,7 +4,7 @@ Drop any job signal you find (a screenshot, a link, a pasted post, a company nam
 
 - Demo: https://job-hunt-os-nemotron.vercel.app
 - Video (under 3 min): `<VIDEO_URL>`
-- Login: password in the Devpost testing instructions
+- Login: none. The demo is open; daily and total USD caps bound the spend
 
 ## Why
 
