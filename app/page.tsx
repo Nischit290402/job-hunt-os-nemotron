@@ -3,7 +3,17 @@ import { getSql } from '@/src/server/sql';
 import { briefData } from '@/src/server/steps';
 import { healthLine } from '@/src/core/brief';
 import { sgtDate } from '@/src/core/time';
+import { env } from '@/src/server/env';
 import { ActionButton, Empty, Notice, Verdict } from './ui';
+
+// In the public demo, Today is read-only: every decision happens in the assistant, where nothing outward is possible.
+function OpenInAssistant({ id }: { id: number }) {
+  return (
+    <a className="btn primary" href={`/chat?app=${id}`}>
+      Open in assistant
+    </a>
+  );
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -11,10 +21,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const { msg } = await searchParams;
   const today = sgtDate();
   const d = await briefData(await getSql(), today);
+  const demo = env.demoMode();
   return (
     <>
       <h1>Today, {today}</h1>
       <Notice msg={msg} />
+      {demo && <Notice msg="Public demo: buttons here open the job in the assistant instead of acting." />}
       <p className="muted">
         This week: {d.week.applied} applied, {d.week.referralsSent} referral asks, target {d.week.target}. {healthLine(d.health)}
         {d.paused ? ' Outward actions are paused.' : ''}
@@ -36,11 +48,17 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           <p>{t.notes}</p>
           {t.flags.length > 0 && <p className="small muted">Flags: {t.flags.join('; ')}</p>}
           <div className="row">
-            <ActionButton action="apply" id={t.applicationId} label="Apply" back="/" primary />
-            <ActionButton action="skip:scope" id={t.applicationId} label="Skip: scope" back="/" />
-            <ActionButton action="skip:company" id={t.applicationId} label="Skip: company" back="/" />
-            <ActionButton action="skip:other" id={t.applicationId} label="Skip: other" back="/" />
-            <ActionButton action="snooze" id={t.applicationId} label="Snooze 3 days" back="/" />
+            {demo ? (
+              <OpenInAssistant id={t.applicationId} />
+            ) : (
+              <>
+                <ActionButton action="apply" id={t.applicationId} label="Apply" back="/" primary />
+                <ActionButton action="skip:scope" id={t.applicationId} label="Skip: scope" back="/" />
+                <ActionButton action="skip:company" id={t.applicationId} label="Skip: company" back="/" />
+                <ActionButton action="skip:other" id={t.applicationId} label="Skip: other" back="/" />
+                <ActionButton action="snooze" id={t.applicationId} label="Snooze 3 days" back="/" />
+              </>
+            )}
           </div>
         </div>
       ))}
@@ -65,8 +83,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             </p>
           )}
           <div className="row">
-            <ActionButton action="send" id={a.applicationId} label={a.email ? 'Save to Gmail drafts' : 'I sent it on LinkedIn'} back="/" primary />
-            <ActionButton action="drop" id={a.applicationId} label="Drop" back="/" />
+            {demo ? (
+              <OpenInAssistant id={a.applicationId} />
+            ) : (
+              <>
+                <ActionButton action="send" id={a.applicationId} label={a.email ? 'Save to Gmail drafts' : 'I sent it on LinkedIn'} back="/" primary />
+                <ActionButton action="drop" id={a.applicationId} label="Drop" back="/" />
+              </>
+            )}
             {a.jobId && <a className="btn" href={`/jobs/${a.jobId}`}>Edit on job page</a>}
           </div>
         </div>
@@ -80,7 +104,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           <p className="small muted">{r.state === 'prefilled' ? 'Form filled on your laptop. Review and click Submit there.' : 'Waiting for the laptop agent, or apply by hand.'}</p>
           <div className="row">
             <a className="btn" href={r.applyUrl} target="_blank" rel="noreferrer">Open apply page</a>
-            <ActionButton action="submitted" id={r.applicationId} label="I submitted it" back="/" primary />
+            {demo ? <OpenInAssistant id={r.applicationId} /> : <ActionButton action="submitted" id={r.applicationId} label="I submitted it" back="/" primary />}
           </div>
         </div>
       ))}
