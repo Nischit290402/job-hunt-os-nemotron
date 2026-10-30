@@ -15,7 +15,6 @@ import {
   nextIndex,
   prevIndex,
   spotlightRect,
-  stepCounter,
   type Placement,
   type Rect,
   type TourStep,
@@ -231,7 +230,9 @@ export default function Tour() {
   if (!open) return null;
 
   const step = TOUR_STEPS[index]!;
-  const { n, total } = stepCounter(TOUR_STEPS, index, ok);
+  // Total counts every step: targets that load late (the spend pill) must not make the counter jump.
+  const n = index + 1;
+  const total = TOUR_STEPS.length;
   const isLast = nextIndex(TOUR_STEPS, index, ok) === -1;
   const canBack = prevIndex(TOUR_STEPS, index, ok) !== index;
   const titleId = `jho-tour-title-${step.id}`;

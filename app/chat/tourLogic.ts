@@ -5,7 +5,7 @@
 
 export const TOUR_STORAGE_KEY = 'jho_tour_v1';
 export const TOUR_EVENT = 'jho:tour';
-export const TOUR_DELAY_MS = 600;
+export const TOUR_DELAY_MS = 1500;
 
 export interface TourStep {
   id: string;
