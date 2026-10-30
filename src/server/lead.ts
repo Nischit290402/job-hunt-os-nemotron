@@ -34,7 +34,12 @@ async function fetchDescription(sql: Sql, link: string, today: string): Promise<
   return { text: '', how: `the link gave no readable description${r.status && r.status !== 200 ? ` (HTTP ${r.status})` : ''}` };
 }
 
-export async function createLead(sql: Sql, lead: Lead, today: string, now = Date.now(), from: 'typed' | 'screenshot' = 'typed') {
+/**
+ * `opts.judge`: 'queue' (default) queues the worker and fires it; 'none' is for the chat experts, which judge on
+ * Nemotron themselves and have already looked for the description with Tavily, so nothing is queued, fired or sent.
+ */
+export async function createLead(sql: Sql, lead: Lead, today: string, now = Date.now(), from: 'typed' | 'screenshot' = 'typed', opts: { judge?: 'queue' | 'none' } = {}) {
+  const judgeHere = opts.judge !== 'none';
   const url = leadUrl(lead, hash12);
   const raw: RawJob = {
     company: lead.company, title: lead.role, location: 'Singapore', url, posted: today,
@@ -49,7 +54,8 @@ export async function createLead(sql: Sql, lead: Lead, today: string, now = Date
 
   let jd = lead.jd.trim();
   let how = jd.length >= JD_MIN ? (from === 'screenshot' ? 'read from your screenshots' : 'as you pasted it') : '';
-  if (jd.length < JD_MIN) {
+  if (jd.length < JD_MIN && !judgeHere) how = jd ? 'your text is short and no posting was found' : 'no description found';
+  else if (jd.length < JD_MIN) {
     const f = await fetchDescription(sql, lead.link, today);
     if (f.text) [jd, how] = [f.text, f.how];
     else how = jd ? 'your pasted text is short' : f.how;
@@ -65,6 +71,11 @@ export async function createLead(sql: Sql, lead: Lead, today: string, now = Date
     });
     await repo.kvSet(sql, leadContactKey(appId), contactId);
     contactNote = ` ${lead.person} is the contact if you apply.`;
+  }
+
+  if (!judgeHere) {
+    const state = (await repo.getApplication(sql, appId))?.state ?? 'today';
+    return { appId, jobId, jd, jdChars: jd.length, how, contactNote, queued: false, fireNote: 'judged by the caller', state };
   }
 
   const job = await repo.jobToJudgeById(sql, jobId);

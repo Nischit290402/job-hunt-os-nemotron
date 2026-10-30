@@ -15,6 +15,9 @@ import { DEFAULT_TERMS, withExtraTerms } from '../core/terms';
 import { BOARD_APIS, boardSlugs } from '../core/route';
 import { postingFromResult, searchQueries, type SearchReport } from '../core/companySearch';
 import { searchName } from '../core/contacts';
+import { isLinkedInUrl } from '../core/lead';
+import * as tavilyLib from './tavily';
+import type { TavilyClient } from '../agents/types';
 
 export type Part = Pick<SearchReport, 'checked' | 'listed' | 'kept' | 'newJobs' | 'rejected' | 'added' | 'notes'>;
 
@@ -86,8 +89,27 @@ export async function searchBoards(sql: Sql, company: string, today: string): Pr
   return out;
 }
 
-/** Web search for single postings on hiring systems or the company's own careers site. */
-export async function searchWeb(sql: Sql, company: string, today: string): Promise<Part> {
+/** Tavily queries: hiring-system pages first (domain-filtered instead of site: operators), then the careers site. */
+export function tavilyQueries(company: string): { q: string; includeDomains?: string[] }[] {
+  const n = searchName(company);
+  return [
+    { q: `"${n}" intern OR internship OR engineer OR scientist Singapore`, includeDomains: atsDomains() },
+    { q: searchQueries(company)[1] },
+  ];
+}
+
+// ATS_DOMAINS comes from tavily.ts (sub-agent B1); read through the namespace so this compiles before that merge.
+export function atsDomains(): string[] {
+  const d = (tavilyLib as unknown as Record<string, unknown>).ATS_DOMAINS;
+  return Array.isArray(d) && d.length ? (d as string[]) : ['greenhouse.io', 'lever.co', 'ashbyhq.com', 'myworkdayjobs.com', 'smartrecruiters.com', 'workable.com'];
+}
+
+/**
+ * Web search for single postings on hiring systems or the company's own careers site.
+ * Provider: Tavily when a client is passed and TAVILY_API_KEY is set (Nebius branch), else Brave as before.
+ */
+export async function searchWeb(sql: Sql, company: string, today: string, tavily?: TavilyClient): Promise<Part> {
+  if (tavily && env.tavilyKey()) return searchWebTavily(sql, company, today, tavily);
   const out = empty();
   if (!env.braveKey()) {
     out.notes.push('Web search is off (no BRAVE_SEARCH_API_KEY).');
@@ -110,6 +132,29 @@ export async function searchWeb(sql: Sql, company: string, today: string): Promi
     }
   }
   out.checked.push(`web search (${results} results, ${seen.size} looked like ${name} postings)`);
+  return out;
+}
+
+async function searchWebTavily(sql: Sql, company: string, today: string, tavily: TavilyClient): Promise<Part> {
+  const out = empty();
+  const name = searchName(company);
+  const seen = new Set<string>();
+  let results = 0;
+  for (const { q, includeDomains } of tavilyQueries(company)) {
+    const rs = await tavily.search(q, { includeDomains, maxResults: 10 }).catch((e: Error) => {
+      out.notes.push(`Web search failed: ${e.message.slice(0, 120)}`);
+      return [];
+    });
+    results += rs.length;
+    for (const r of rs) {
+      if (isLinkedInUrl(r.url)) continue;
+      const p = postingFromResult(r, company);
+      if (!p || seen.has(p.url)) continue;
+      seen.add(p.url);
+      await keep(sql, { company: name, title: p.title, location: p.location, url: p.url, posted: '', channel: p.ats ? 'ATS' : 'CRAWL', remote: p.location === 'Remote' }, today, out);
+    }
+  }
+  out.checked.push(`Tavily web search, LinkedIn excluded (${results} results, ${seen.size} looked like ${name} postings)`);
   return out;
 }
 
