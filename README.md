@@ -1,88 +1,162 @@
-# Job Hunt OS
+# Job Hunt OS: a private job-hunt assistant on NVIDIA Nemotron + Nebius Token Factory
 
-One product for the whole job search: it finds roles, scores them, tailors your resume, finds someone to ask for a referral, drafts the ask, waits, pre-fills the application, and hands it to you to submit. You run it from Telegram in about 5 to 10 minutes each morning.
+Drop any job signal you find (a screenshot, a link, a pasted post, a company name) into one chat. Three Nemotron experts on Nebius Token Factory turn it into a scored lead, a one-page resume checked against your master, and a referral draft with a cited contact. Nothing leaves without your tap.
 
-**Every outward action needs your tap.** The system never sends an email, a LinkedIn request or an application on its own.
+- Demo: `<DEMO_URL>`
+- Video (under 3 min): `<VIDEO_URL>`
+- Login: password in the Devpost testing instructions
 
-Design doc: [Job Hunt OS: System Design (HLD v1)](https://claude.ai/artifact/WGNzqqeCndvgkUXVoBdnvy)
+## Why
 
-## How a day works
+I am an international MSc student in Singapore. A normal week is 12 hours of class, 16 hours at a part-time job and 8 to 10 hours of research. Job posts reach me while I scroll: a recruiter's post, a friend's screenshot, a careers page someone links in a group chat.
 
-| Time (SGT) | What happens |
-| --- | --- |
-| 05:00 | Collect from every source (ATS APIs, MyCareersFuture, lists, Firecrawl pages), one step per source |
-| 05:00+ | Fetch missing job descriptions (MCF, SmartRecruiters and Workday APIs, then HTML, then Firecrawl for Singapore internships) |
-| 05:15+ | New jobs queued for judging; the app starts your Claude Code scheduled task, which scores them (score, gates, flags, deadline) |
-| 07:45 | Telegram brief: up to 3 jobs to decide (one per employer), drafts to approve, applications to submit, health line |
-| On your tap | Apply starts the application workflow; Skip asks for a reason; Snooze brings it back in 3 days |
-| 06:30 daily | Check Gmail threads for replies; draft one follow-up after 5 days |
-| 20:30 | Nudge only if a Today item has waited 2+ days |
-| Sunday 09:00 | Weekly review: funnel, skip reasons, 20 filter rejects to sanity-check, spend |
+Turning one of those into a proper application takes four steps:
 
-After **Apply**: the scheduled task tailors your resume with your bases and gates (PDF in Telegram within minutes), then a contact search. If a contact is found, you get a draft to Send, Edit or Drop. After sending, it waits 3 days (or until a reply), then queues the application. The laptop agent fills the form and stops before Submit; you click Submit and tap **I submitted it**.
+1. Read the full job description, which usually lives somewhere else.
+2. Check fit honestly: visa, location, seniority, deadline, real skill gaps.
+3. Write a one-page resume tailored to that role, with no invented facts or numbers.
+4. Find a real person at the company to ask for a referral, and write a message they will read.
 
-## What's in the repo
+That takes about an hour per role, so most signals die in the camera roll. Job Hunt OS does steps 1 to 4 in one chat turn each and leaves only the decisions to you.
 
+Usage so far: [X] postings collected and [Y] scored since Oct 23, 2026.
+
+## What
+
+- **One chat, any input.** Paste a screenshot, a job URL, a post's text, or just a company name.
+- **A router and three experts.** The router reads the message and picks one expert to run. The other likely next steps appear as one-tap buttons.
+  - **Job Fetcher**: turns a signal into a lead, finds the real job description, scores it against your profile with hard gates (A1 to A5), lists your top roles for today, searches one company's open roles.
+  - **Resume**: drafts a one-page resume for one job from your master resume, then checks every claim and number against the master in code before it renders.
+  - **Outreach**: finds one real person on a public page, proves the quote it relies on is on that page, and drafts a referral email plus a 200-character note.
+- **A daily run.** Every morning at 05:00 SGT it collects new postings from 6 company boards, Nano triages up to 10, and Ultra re-judges the top 2.
+- **Drafts only.** Email goes to Gmail as a draft. LinkedIn notes are text you copy. Applications are yours to submit.
+
+## How it uses NVIDIA Nemotron on Nebius Token Factory
+
+Every model call goes through one file, `src/server/nebius.ts`, to Nebius Token Factory. No other model provider is used.
+
+| Call | Model | Why this size |
+| --- | --- | --- |
+| Router (intent + confidence) | Nemotron 3 Nano | Runs on every message; needs to be fast and cheap |
+| Lead extraction from pasted text or a page | Nemotron 3 Nano | Structured JSON from short text |
+| Daily triage of new postings | Nemotron 3 Nano | Many jobs, a rough score is enough to rank |
+| Self-check of outreach drafts | Nemotron 3 Nano | A second read against a fixed checklist |
+| Screenshot of a post | Nemotron 3.5 Super VL | Only model in the set that reads images |
+| Single-job judge (gates, score, gaps) | Nemotron 3 Ultra | The decision you act on; worth the reasoning |
+| Daily re-judge of the top postings | Nemotron 3 Ultra | Only the few jobs Nano ranked highest |
+| Resume drafting | Nemotron 3 Ultra | Long structured output that must stay faithful to the master |
+| Outreach draft | Nemotron 3 Ultra | Tone and specificity matter for a cold ask |
+
+**Nano to Ultra cascade.** The daily run scores every new posting with Nano, then sends only the best 2 to Ultra. The chat shows both scores ("Nano 71, Ultra 78") so you can see where the larger model changed its mind.
+
+**Per-step trace.** Each chat turn streams its steps as they run: expert, model, milliseconds, tokens in and out, and USD cost. Every call is also written to the `runs` table.
+
+**USD caps.** Prices per model live in `src/core/models.ts`. Before each call the app sums today's and all-time spend:
+
+- At 60% of the daily cap, saver mode maps Ultra steps to Nano and shows a banner.
+- At the daily cap (`LLM_DAILY_USD_CAP`, default $1) or the total cap (`LLM_TOTAL_USD_CAP`, default $15), no model call is made. The chat answers with a banner and a link to the demo video.
+
+### Where Token Factory accelerated our workflow
+
+- One OpenAI-compatible endpoint serves all three model sizes. Choosing a model per step is a role name (`fast`, `vision`, `reason`) mapped to a model ID in env, so moving a step from Ultra to Nano is a config change with no code change.
+- Saver mode depends on this: it swaps the model ID for a role at runtime, and the request shape stays the same.
+- Measured per flow (median of [N] runs):
+
+| Flow | Calls | Latency | Cost |
+| --- | --- | --- | --- |
+| Screenshot to scored lead | [n] | [s] | $[x] |
+| Tailored resume | [n] | [s] | $[x] |
+| Referral draft | [n] | [s] | $[x] |
+| Daily run (6 boards) | [n] | [s] | $[x] |
+
+## Tavily
+
+Tavily Search and Extract do all live web work: finding the full job description behind a post, listing a company's open roles, and reading public team or speaker pages to find a contact. `linkedin.com` and `lnkd.in` are always in `exclude_domains`, and any LinkedIn URL is dropped in code before an Extract request. Job aggregators and social sites are excluded too, so results come from the company or its applicant tracking system.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  U[Screenshot, link, pasted post, company name] --> W[Web chat]
+  W --> O[Orchestrator runTurn]
+  O --> I[Intake rules: image, URL, LinkedIn refusal]
+  I --> R[Router: Nemotron 3 Nano]
+  R --> JF[Job Fetcher]
+  R --> RS[Resume]
+  R --> OU[Outreach]
+  JF --> TF[Nebius Token Factory]
+  RS --> TF
+  OU --> TF
+  TF --> VL[Nemotron 3.5 Super VL]
+  TF --> UL[Nemotron 3 Ultra]
+  TF --> NA[Nemotron 3 Nano]
+  JF --> TV[Tavily Search and Extract]
+  OU --> TV
+  JF --> DB[(Neon Postgres)]
+  RS --> DB
+  OU --> DB
+  C[Vercel Cron 05:00 SGT] --> D[Daily run]
+  D --> NA
+  D --> UL
+  D --> DB
 ```
-src/core/        pure logic, no I/O: filters, keys, source parsers, ranker, state machine, judge prompt and bands,
-                 contact parsing, outreach rules, brief layout, signing
-src/server/      adapters: Postgres repo, collector, Claude work queue, Telegram bot, Gmail, search, outreach, steps
-src/inngest/     durable workflows: daily run, per-application flow, reply watch, nudges, weekly review, re-judge, worker watch
-app/             Next.js: 5 dashboard pages + API routes (Telegram webhook, Inngest, agent, worker, auth, actions)
-migrations/      Postgres schema (12 tables + kv, login codes, migrations)
-seed/            your sources, judge profile, preferences, caps and past applications
-worker/          cli.mjs: the commands the Claude worker runs (claim, answer, kit, build, submit-resume)
-.claude/skills/  jobhunt-worker: how the worker judges, tailors (your /tailor-resume rules), drafts and coaches
-agent/           laptop apply-assist (Playwright, your own Chrome profile)
-tests/           unit tests + Postgres integration tests (real schema, real SQL)
+
+### What each expert sees
+
+| Expert | Sees | Never sees |
+| --- | --- | --- |
+| Router | Your message, the intake result, short summaries of the last 4 turns, the last job you worked on | Your master resume, profile, contacts, drafts |
+| Job Fetcher | The scoring rubric (gates A1 to A5), your profile, your preference rules, your last 10 skip reasons, your Today list | Your master resume, contacts, drafts |
+| Resume | Your master resume, the one job, its judged gaps, your guidance for this draft | Contacts, drafts, other jobs |
+| Outreach | Your 5-line outreach summary, the one job (description up to 3,000 characters), known contacts at that company, the person you named | Your full master resume, scores, other jobs |
+
+The same lists are shown in the app on the `/memory` page.
+
+## Safety and privacy
+
+- **Taps only.** Nothing outward (email, LinkedIn, application) happens without a signed tap from you.
+- **Gmail drafts only.** The app saves a draft to your Gmail. You press Send in Gmail.
+- **Never LinkedIn.** No code fetches linkedin.com. A LinkedIn link in chat gets "send a screenshot or paste the text" and no network call.
+- **Untrusted text.** Job posts, web pages and screenshots are data. Every system prompt says so and tells the model to ignore instructions inside them.
+- **Demo masking.** With `DEMO_MODE=1` your phone and email are masked on resumes, sending is disabled, and worker and bot routes return 404. The master resume is never returned by any route.
+- **Spend caps.** Daily and total USD caps for models, and a daily cap for Tavily calls (`TAVILY_DAILY_CAP`).
+
+## Quickstart
+
+Requirements: Node 22, a Postgres database (Neon works), a Nebius Token Factory API key, a Tavily API key.
+
+```bash
+cp .env.example .env.local      # fill DATABASE_URL, NEBIUS_API_KEY, TAVILY_API_KEY, SIGNING_SECRET, DEMO_PASSWORD
+npm install
+npm run db:migrate
+npm run db:seed                 # sources, profile, preferences from seed/
+npm run demo:seed -- --master "Master Resume.md" --yes
+npm run dev                     # http://localhost:3000
 ```
 
-## How Claude runs
+`demo:seed` reads `.env.demo` first if present, prints only the database host, refuses to write without `--yes`, stores your master resume, runs the daily Nemotron pass once and prints the LLM spend. Add `--no-daily` to skip the model calls.
 
-There is no Claude API key. The app queues each piece of Claude work (judge a job, tailor a resume, draft an ask,
-answer a coach question) in Postgres and starts your Claude Code scheduled task with one HTTP call. That run loads the
-`jobhunt-worker` skill from this repo, claims tasks with `node worker/cli.mjs`, and posts results back. Usage counts
-against your Claude plan, not an API bill. If nothing picks the work up within 10 minutes, the laptop agent runs Claude
-Code locally with the same skill. An hourly watch restarts the task when work has waited 30 minutes, and gives up on a
-task after 3 attempts so the application moves on with your base resume.
+Deploy on Vercel: import the repo, set the same env vars plus `CRON_SECRET`, and enable Fluid Compute. `vercel.json` schedules `/api/cron/daily` at 21:00 UTC (05:00 SGT); the route rejects requests without `Authorization: Bearer $CRON_SECRET`.
 
-## Setup
+## Tests
 
-Step-by-step instructions with every click and command: [docs/SETUP.md](docs/SETUP.md).
-
-## Telegram commands
-
-`/today`, `/brief`, `/pipeline`, `/job <company>`, `/lead Company | Role | Person | Link` (JD on the next lines) or screenshots of the post (caption: person or link), `/search <company>`, `/more [n]`, `/jobtypes [intern parttime fulltime]`, `/tailor <app id> [guidance]`, `/prefs`, `/prefs rule <text>`, `/prefs exclude <term>`, `/prefs drop <id>`, `/cap <company> <n>`, `/referral <app id> <link>`, `/submitted <app id>`, `/outcome <app id> interview|offer|rejected`, `/pause`, `/resume`, `/retry <app id>`, `/unlock`, `/health`. Any other text goes to the read-only coach.
-
-The dashboard sign-in sends a 6-digit code to your Telegram chat; there are no passwords. Only the newest code works, each code allows 5 tries, and at most 10 codes are issued a day. If sign-in locks, send `/unlock` to the bot.
-
-## Safety model
-
-- **Telegram:** the webhook checks Telegram's secret header, and the bot answers only messages and taps from you in your own chat. Buttons carry HMAC-signed, expiring payloads, so a forged or stale tap does nothing. Commands you type there (`/submitted`, `/outcome`) count as taps. Each update is handled once, even if Telegram re-sends it.
-- **Laptop agent:** its bearer token can only report a form as filled or failed; it cannot send anything or mark an application submitted.
-- **Email:** the app never sends email. A signed tap saves the referral ask to your Gmail drafts (scope `gmail.compose`; the code has no send call), and you send it from Gmail. Each draft is claimed first, so a double tap saves once. There is a cap of 5 new emails a day and 20 a week, one follow-up, and a do-not-contact list. Bounces add the address to that list automatically. `/pause` stops all outward actions.
-- **LinkedIn:** the system never opens LinkedIn. Contacts come from your own export and from search-engine results (titles and snippets). You send LinkedIn notes yourself. LinkedIn's User Agreement (section 8.2) bans bots, scraping and browser plug-ins, so none are used, including Claude in Chrome.
-- **Applications:** the agent fills forms in its own Chrome profile and never clicks Submit. It skips CAPTCHAs, never ticks consent, terms or marketing boxes, and leaves fields it cannot match. Prose questions ("Why us?") are drafted by Claude from your master resume and typed into the open form for you to read before submitting; salary, visa and legal questions are left for you.
-- **Apply routes:** you cannot apply through MyCareersFuture (Singpass only). For jobs found there or on aggregators, the app looks for the employer's hiring-system page, then its careers site, then an "email your CV" address (saved as a Gmail draft with your resume attached). With none of those the job is not shown.
-- **Untrusted text:** job descriptions and email replies are treated as data. The worker skill forbids following instructions in them, and the worker can only call the app's queue endpoints; on the laptop it may run nothing but `worker/cli.mjs`.
-- **Personal files:** your resume files, answer bank and browser profile are gitignored. Your master resume, bases and gate scripts are synced into the database (key-value table) so the cloud worker can tailor; they never enter the repo.
-
-## Costs
-
-Hosting, database, Inngest and Telegram fit their free tiers at one person's volume. Claude work runs on your Claude
-plan's usage: about 40 judged jobs a day in one morning run, plus a few minutes per tailored resume. Brave's monthly
-credit covers about 1,000 searches.
-
-## Testing
-
-```
-npm test                                  # 78 tests; Postgres tests need PGHOST/PGPORT/PGUSER (CI starts one)
-cd agent && npm test                      # form filling in headless Chromium
+```bash
+npm test
 ```
 
-## Known limits
+Tests use fakes for Nemotron and Tavily (`tests/fakes.ts`) and never call Nebius or Tavily. Postgres integration tests run against a real schema when `PGHOST`, `PGPORT` and `PGUSER` are set, and skip otherwise. CI runs typecheck, tests and `next build` on every push.
 
-- TikTok's careers site is JavaScript-only. Its descriptions arrive only through Firecrawl (Singapore internships, within caps) or the aggregators; otherwise the judge flags "no JD" and caps the score at 64.
-- Workday applications are multi-page and need an account per company. The agent fills the first page only; the rest is manual.
-- Source endpoints marked UNVERIFIED in `src/core/sources/index.ts` (SmartRecruiters, MyCareersFuture search, freehire.me, and the AppLovin and QRT Greenhouse slugs) need checking on the first run. `/health` lists any that fail.
-- The Sheet from v0.3.1 is not synced. Your applied rows (TikTok, JPMorgan) are imported by the seed.
+## Built during the submission period
+
+The project started on Oct 23, 2026 (see the first commits). This branch adds:
+
+- Nemotron on Nebius Token Factory for every model call, with model roles, fallbacks, cost tracking and USD caps
+- The router and the three experts (Job Fetcher, Resume, Outreach)
+- Tavily Search and Extract, with LinkedIn always excluded
+- The web chat with a live per-step trace and spend footer
+- The daily Nemotron run on Vercel Cron (Nano triage, Ultra re-judge)
+- Demo privacy: masking, disabled sending, closed internal routes
+
+## License
+
+MIT. See [LICENSE](LICENSE).
