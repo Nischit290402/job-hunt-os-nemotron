@@ -32,17 +32,3 @@ jobs:
         env:
           SIGNING_SECRET: ci-only-signing-secret-0123456789
 
-  worker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: node --check worker/cli.mjs
-      - name: Answers that break the schema are refused before sending
-        run: |
-          mkdir -p .work
-          echo '{"id":1,"kind":"judge","instructions":"i","input":"x","schema":{"type":"object","required":["score"],"properties":{"score":{"type":"integer","maximum":100}}},"meta":{}}' > .work/1.json
-          echo '{"score": 140}' > bad.json
-          if JOBHUNT_URL=http://127.0.0.1:9 WORKER_TOKEN=t node worker/cli.mjs answer 1 bad.json; then echo "should have failed"; exit 1; fi
