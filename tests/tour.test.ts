@@ -33,7 +33,7 @@ test('six steps in order, welcome first with no target', () => {
 test('copy has no em dashes or emojis', () => {
   for (const s of TOUR_STEPS) {
     const text = s.title + s.body;
-    assert.ok(!text.includes('—'), s.id);
+    assert.ok(!text.includes('\u2014'), s.id);
     assert.ok(!/\p{Extended_Pictographic}/u.test(text), s.id);
   }
 });
