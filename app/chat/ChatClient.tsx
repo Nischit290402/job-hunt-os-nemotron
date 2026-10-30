@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import type { ActionRequest, Card, ChatRequest, ExpertId, ImageIn, StepEvent, StreamEvent, SuggestedAction, TurnSummary } from '@/src/agents/types';
 import { CardView, Trace, fmtUsd, safeHref } from './cards';
+import Tour from './Tour';
 
 type Attachment = ImageIn & { id: string; preview: string };
 type Block =
@@ -466,7 +467,7 @@ export default function ChatClient({ demo, initialAppId, notice }: { demo: boole
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {/* tour */}
+      <Tour />
       {notice && <div className="ch-banner info">{notice}</div>}
 
       {dragging && (
