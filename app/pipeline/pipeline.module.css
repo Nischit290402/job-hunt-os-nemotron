@@ -1,0 +1,79 @@
+.funnel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 0 16px;
+  padding: 6px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius, 12px);
+}
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  color: var(--text-2, #6e6e73);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.seg:hover { background: var(--accent-soft, rgba(0, 122, 255, 0.1)); color: var(--text, #1d1d1f); }
+.segActive, .segActive:hover { background: var(--accent, #007aff); color: #fff; }
+.count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.sep { color: var(--text-2, #6e6e73); opacity: 0.5; font-size: 12px; }
+.meta { display: flex; justify-content: space-between; align-items: center; margin: 0 0 8px; font-size: 13px; color: var(--text-2, #6e6e73); }
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface, #fff);
+  border: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius, 12px);
+  overflow: hidden;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 96px auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
+}
+.row:first-child { border-top: 0; }
+.who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text, #1d1d1f); }
+.company { font-weight: 600; }
+.role { color: var(--text-2, #6e6e73); }
+.stage {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft, rgba(0, 122, 255, 0.1));
+  color: var(--text, #1d1d1f);
+  white-space: nowrap;
+}
+.when { font-size: 12px; color: var(--text-2, #6e6e73); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.open { color: var(--accent, #007aff); text-decoration: none; font-size: 13px; font-weight: 500; justify-self: end; }
+.empty { padding: 24px 14px; color: var(--text-2, #6e6e73); text-align: center; }
+.pager { display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; font-size: 13px; }
+.pager a { color: var(--accent, #007aff); text-decoration: none; }
+.disabled { color: var(--text-2, #6e6e73); opacity: 0.5; }
+
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'who open' 'pills when';
+    row-gap: 4px;
+    padding: 8px 12px;
+  }
+  .who { grid-area: who; }
+  .open { grid-area: open; }
+  .pills { grid-area: pills; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .when { grid-area: when; }
+}
+@media (min-width: 601px) {
+  .pills { display: contents; }
+}
